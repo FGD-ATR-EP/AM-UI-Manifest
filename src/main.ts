@@ -102,6 +102,29 @@ function bootstrap(): void {
   };
 
   const syncHUD = () => hud.updateState(telemetry.getSnapshot());
+  const burstFromTouch = (touch: Touch, intensity: number, direction: 1 | -1): void => {
+    particles.applyBurst(touch.clientX, touch.clientY, intensity, direction);
+  };
+
+  window.addEventListener('pointermove', (event) => {
+    particles.applyBurst(event.clientX, event.clientY, 0.15, -1);
+  });
+
+  window.addEventListener('pointerdown', (event) => {
+    particles.applyBurst(event.clientX, event.clientY, 1.0, 1);
+  });
+
+  window.addEventListener('touchstart', (event) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    burstFromTouch(touch, 1.15, 1);
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (event) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    burstFromTouch(touch, 0.25, -1);
+  }, { passive: true });
 
   window.addEventListener('intent:fallback', (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail;
