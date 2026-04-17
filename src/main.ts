@@ -11,43 +11,57 @@ function mountAppShell(root: HTMLElement): void {
   root.innerHTML = `
     <div id="canvas-container" class="absolute inset-0 z-0"></div>
     <div class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-6 text-sm text-slate-100">
-      <div class="flex justify-between items-start pointer-events-auto w-full">
-        <div class="glass-panel rounded-xl p-4 w-80 space-y-3">
-          <div class="flex justify-between items-center border-b border-white/10 pb-2">
-            <span class="font-bold tracking-wider text-xs text-indigo-200 uppercase">Aetherium OS</span>
-          </div>
-          <div class="space-y-2 font-mono text-[10px]">
-            <div class="flex justify-between"><span class="text-gray-400">STATE</span><span id="metric-state" class="text-cyan-400">IDLE</span></div>
-            <div class="flex justify-between items-center"><span class="text-gray-400">ENERGY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-energy" class="h-full bg-cyan-400 w-[20%]"></div></div></div>
-            <div class="flex justify-between items-center"><span class="text-gray-400">ENTROPY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-entropy" class="h-full bg-purple-400 w-[10%]"></div></div></div>
-            <div class="flex justify-between items-center"><span class="text-gray-400">LOAD</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-load" class="h-full bg-amber-400 w-[8%]"></div></div></div>
-          </div>
-          <div class="pt-2 border-t border-white/10 space-y-1 font-mono text-[10px]">
-            <div class="flex justify-between"><span class="text-gray-400">REQUESTS</span><span id="metric-request-count" class="text-emerald-300">0 / 60s</span></div>
-            <div class="flex justify-between"><span class="text-gray-400">IN-FLIGHT</span><span id="metric-in-flight" class="text-emerald-300">0</span></div>
-            <div class="flex justify-between"><span class="text-gray-400">AVG LATENCY</span><span id="metric-avg-latency" class="text-emerald-300">0ms</span></div>
-            <div class="flex justify-between"><span class="text-gray-400">ERROR RATE</span><span id="metric-error-rate" class="text-emerald-300">0%</span></div>
-            <div class="flex justify-between"><span class="text-gray-400">THROUGHPUT</span><span id="metric-throughput" class="text-emerald-300">0/min</span></div>
-            <div class="flex justify-between"><span class="text-gray-400">FALLBACKS</span><span id="metric-fallbacks" class="text-emerald-300">0 / 60s</span></div>
-          </div>
-          <div id="console-logs" class="h-20 overflow-y-auto pt-2 border-t border-white/10 font-mono text-[9px] text-gray-500 space-y-1 mt-2"><div>[SYS] Runtime ready.</div></div>
-        </div>
-
-        <div class="flex flex-col items-end">
-          <button id="btn-settings" class="p-2 glass-panel rounded-full hover:bg-white/10">⚙️</button>
-          <div id="panel-settings" class="glass-panel rounded-xl p-4 mt-2 w-72 hidden transition-all">
-            <h3 class="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">Runtime Configuration</h3>
-            <div class="space-y-3 font-mono text-[10px]"><label class="block text-gray-500 mb-1">Proxy Base Path</label><input type="text" id="cfg-base-path" placeholder="(optional) e.g. /internal" class="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono"><button id="btn-connect" class="w-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 rounded py-1.5 transition-colors">Apply & Sync</button></div>
-          </div>
-        </div>
+      <div class="pointer-events-auto flex justify-end w-full">
+        <button id="btn-settings" aria-expanded="false" class="px-3 py-2 glass-panel rounded-full hover:bg-white/10 font-mono text-[11px] tracking-wide">
+          SETTINGS
+        </button>
       </div>
 
-      <div class="w-full max-w-2xl mx-auto pointer-events-auto pb-4 sm:pb-8">
-        <div id="visual-target" class="mb-4 glass-panel rounded-xl p-4 hidden">
-          <div class="flex items-center justify-between border-b border-white/5 pb-2 mb-3"><span class="text-xs text-gray-400 font-mono">Cognitive Manifestation</span></div>
-          <div id="target-content" class="text-sm text-gray-300"></div>
-        </div>
+      <section id="settings-section" class="w-full hidden pointer-events-auto">
+        <div class="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <div class="glass-panel rounded-xl p-4 space-y-3">
+            <div class="flex justify-between items-center border-b border-white/10 pb-2">
+              <span class="font-bold tracking-wider text-xs text-indigo-200 uppercase">Aetherium OS</span>
+            </div>
+            <div class="space-y-2 font-mono text-[10px]">
+              <div class="flex justify-between"><span class="text-gray-400">STATE</span><span id="metric-state" class="text-cyan-400">IDLE</span></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">ENERGY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-energy" class="h-full bg-cyan-400 w-[20%]"></div></div></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">ENTROPY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-entropy" class="h-full bg-purple-400 w-[10%]"></div></div></div>
+              <div class="flex justify-between items-center"><span class="text-gray-400">LOAD</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-load" class="h-full bg-amber-400 w-[8%]"></div></div></div>
+            </div>
+            <div class="pt-2 border-t border-white/10 space-y-1 font-mono text-[10px]">
+              <div class="flex justify-between"><span class="text-gray-400">REQUESTS</span><span id="metric-request-count" class="text-emerald-300">0 / 60s</span></div>
+              <div class="flex justify-between"><span class="text-gray-400">IN-FLIGHT</span><span id="metric-in-flight" class="text-emerald-300">0</span></div>
+              <div class="flex justify-between"><span class="text-gray-400">AVG LATENCY</span><span id="metric-avg-latency" class="text-emerald-300">0ms</span></div>
+              <div class="flex justify-between"><span class="text-gray-400">ERROR RATE</span><span id="metric-error-rate" class="text-emerald-300">0%</span></div>
+              <div class="flex justify-between"><span class="text-gray-400">THROUGHPUT</span><span id="metric-throughput" class="text-emerald-300">0/min</span></div>
+              <div class="flex justify-between"><span class="text-gray-400">FALLBACKS</span><span id="metric-fallbacks" class="text-emerald-300">0 / 60s</span></div>
+            </div>
+            <div id="console-logs" class="h-20 overflow-y-auto pt-2 border-t border-white/10 font-mono text-[9px] text-gray-500 space-y-1 mt-2"><div>[SYS] Runtime ready.</div></div>
+          </div>
 
+          <div class="space-y-4">
+            <div class="flex justify-end">
+              <button id="btn-config" class="p-2 glass-panel rounded-full hover:bg-white/10" aria-expanded="false">⚙️</button>
+            </div>
+
+            <div id="panel-settings" class="glass-panel rounded-xl p-4 w-full max-w-md hidden transition-all">
+              <h3 class="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">Runtime Configuration</h3>
+              <div class="space-y-3 font-mono text-[10px]"><label class="block text-gray-500 mb-1">Proxy Base Path</label><input type="text" id="cfg-base-path" placeholder="(optional) e.g. /internal" class="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono"><button id="btn-connect" class="w-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 rounded py-1.5 transition-colors">Apply & Sync</button></div>
+            </div>
+
+            <div id="visual-target" class="glass-panel rounded-xl p-4 hidden">
+              <div class="flex items-center justify-between border-b border-white/5 pb-2 mb-3"><span class="text-xs text-gray-400 font-mono">Cognitive Manifestation</span></div>
+              <div id="target-content" class="text-sm text-gray-300"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="w-full max-w-2xl mx-auto pointer-events-auto pb-4 sm:pb-8">
+        <div class="glass-panel rounded-xl px-3 py-2 mb-3 text-[11px] sm:text-xs text-gray-300 font-mono text-center">
+          Home mode: interactive field + intent input. Open Settings for HUD / logs / config.
+        </div>
         <div id="composer-container" class="glass-panel rounded-2xl p-2 flex items-center space-x-2 transition-all duration-300 border border-white/10">
           <input type="text" id="composer-input" class="flex-1 bg-transparent text-white placeholder-gray-500 text-sm sm:text-base py-2 px-2" placeholder="ป้อนเจตจำนงเชิงปัญญา (Cognitive Intent)...">
           <button id="btn-emit" class="px-4 py-2 sm:py-3 bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/30 text-indigo-200 hover:text-white rounded-xl transition-all">EMIT</button>
@@ -76,7 +90,16 @@ function bootstrap(): void {
 
   const composer = root.querySelector<HTMLInputElement>('#composer-input');
   const emitButton = root.querySelector<HTMLButtonElement>('#btn-emit');
+  const settingsButton = root.querySelector<HTMLButtonElement>('#btn-settings');
+  const settingsSection = root.querySelector<HTMLElement>('#settings-section');
   if (!composer || !emitButton) throw new Error('composer controls missing');
+  if (!settingsButton || !settingsSection) throw new Error('settings controls missing');
+
+  settingsButton.onclick = () => {
+    const willOpen = settingsSection.classList.contains('hidden');
+    settingsSection.classList.toggle('hidden');
+    settingsButton.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  };
 
   const syncHUD = () => hud.updateState(telemetry.getSnapshot());
 
