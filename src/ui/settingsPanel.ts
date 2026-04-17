@@ -8,14 +8,18 @@ export class SettingsPanel {
 
   constructor(private root: HTMLElement, private onUpdated: (message: string) => void) {
     this.panel = this.el<HTMLElement>('panel-settings');
-    this.button = this.el<HTMLButtonElement>('btn-settings');
+    this.button = this.el<HTMLButtonElement>('btn-config');
     this.basePathInput = this.el<HTMLInputElement>('cfg-base-path');
     this.syncButton = this.el<HTMLButtonElement>('btn-connect');
 
     const cfg = getConfig();
     this.basePathInput.value = cfg.apiBasePath;
 
-    this.button.onclick = () => this.panel.classList.toggle('hidden');
+    this.button.onclick = () => {
+      const willOpen = this.panel.classList.contains('hidden');
+      this.panel.classList.toggle('hidden');
+      this.button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    };
     this.syncButton.onclick = () => {
       updateConfig({ apiBasePath: this.basePathInput.value.trim() });
       this.onUpdated('Safe runtime configuration updated.');
