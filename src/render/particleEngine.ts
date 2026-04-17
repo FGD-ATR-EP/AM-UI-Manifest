@@ -6,8 +6,16 @@ export class ParticleEngine {
   private camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
   private renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   private clock = new THREE.Clock();
+  private elapsedTime = 0;
   private particles!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private material!: THREE.ShaderMaterial;
+  private interaction = {
+    pointer: new THREE.Vector2(2, 2),
+    targetBurst: 0,
+    burstStrength: 0,
+    burstDecay: 1.8,
+    direction: 1 as 1 | -1
+  };
 
   constructor(private mountNode: HTMLElement) {
     this.camera.position.z = 400;
@@ -21,6 +29,7 @@ export class ParticleEngine {
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     const phases = new Float32Array(count);
+    const responsiveness = new Float32Array(count);
 
     for (let i = 0; i < count; i += 1) {
       const r = 100 + Math.random() * 300;
@@ -34,33 +43,55 @@ export class ParticleEngine {
       colors[i * 3 + 1] = 0.4;
       colors[i * 3 + 2] = 0.94;
       phases[i] = Math.random() * Math.PI * 2;
+      responsiveness[i] = 0.7 + Math.random() * 0.8;
     }
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
+    geometry.setAttribute('responsiveness', new THREE.BufferAttribute(responsiveness, 1));
 
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
         energy: { value: 0.2 },
-        entropy: { value: 0.1 }
+        entropy: { value: 0.1 },
+        pointerPosition: { value: new THREE.Vector2(2, 2) },
+        burstStrength: { value: 0 },
+        burstDecay: { value: this.interaction.burstDecay },
+        interactionDirection: { value: 1.0 },
+        stateMode: { value: 0.0 }
       },
       vertexShader: `
         uniform float time;
         uniform float energy;
         uniform float entropy;
+        uniform vec2 pointerPosition;
+        uniform float burstStrength;
+        uniform float burstDecay;
+        uniform float interactionDirection;
+        uniform float stateMode;
         attribute vec3 color;
         attribute float phase;
+        attribute float responsiveness;
         varying vec3 vColor;
         void main() {
           vColor = color;
           vec3 pos = position;
           float movement = sin(time * 0.5 + phase) * (20.0 * entropy);
           pos += normalize(pos) * movement * (1.0 + energy);
+          vec4 interactionMv = modelViewMatrix * vec4(pos, 1.0);
+          vec4 interactionClip = projectionMatrix * interactionMv;
+          vec2 particleNdc = interactionClip.xy / max(interactionClip.w, 0.0001);
+          vec2 delta = pointerPosition - particleNdc;
+          float dist = length(delta) + 0.0001;
+          float pullPush = exp(-dist * (8.0 + burstDecay * 2.0));
+          float stateForceScale = mix(0.45, 1.25, stateMode);
+          float fieldForce = burstStrength * pullPush * responsiveness * stateForceScale;
+          pos.xy += normalize(delta) * fieldForce * 90.0 * interactionDirection;
           vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
-          gl_PointSize = (2.0 + energy * 3.0) * (300.0 / -mvPos.z);
+          gl_PointSize = (2.0 + energy * 3.0 + fieldForce * 5.0) * (300.0 / -mvPos.z);
           gl_Position = projectionMatrix * mvPos;
         }
       `,
@@ -81,11 +112,30 @@ export class ParticleEngine {
   }
 
   render(snapshot: SystemSnapshot): void {
-    this.material.uniforms.time.value = this.clock.getElapsedTime();
+    const deltaTime = this.clock.getDelta();
+    this.elapsedTime += deltaTime;
+    this.interaction.targetBurst = Math.max(0, this.interaction.targetBurst - this.interaction.burstDecay * deltaTime);
+    this.interaction.burstStrength = THREE.MathUtils.lerp(this.interaction.burstStrength, this.interaction.targetBurst, 0.2);
+
+    this.material.uniforms.time.value = this.elapsedTime;
     this.material.uniforms.energy.value = THREE.MathUtils.lerp(this.material.uniforms.energy.value, snapshot.energyLevel, 0.05);
     this.material.uniforms.entropy.value = THREE.MathUtils.lerp(this.material.uniforms.entropy.value, snapshot.entropyLevel, 0.05);
+    this.material.uniforms.pointerPosition.value.copy(this.interaction.pointer);
+    this.material.uniforms.burstStrength.value = this.interaction.burstStrength;
+    this.material.uniforms.burstDecay.value = this.interaction.burstDecay;
+    this.material.uniforms.interactionDirection.value = this.interaction.direction;
+    this.material.uniforms.stateMode.value = this.mapStateToMode(snapshot.mode);
     this.particles.rotation.y += 0.001 * (1 + snapshot.energyLevel);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  applyBurst(clientX: number, clientY: number, intensity: number, direction: 1 | -1 = 1): void {
+    this.interaction.pointer.set(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1
+    );
+    this.interaction.direction = direction;
+    this.interaction.targetBurst = Math.max(this.interaction.targetBurst, THREE.MathUtils.clamp(intensity, 0, 3));
   }
 
   applyColors(hexColors: string[]): void {
@@ -106,5 +156,19 @@ export class ParticleEngine {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  private mapStateToMode(mode: SystemSnapshot['mode']): number {
+    switch (mode) {
+      case 'IDLE':
+        return 0.15;
+      case 'THINKING':
+        return 0.55;
+      case 'EMITTING':
+        return 1.0;
+      case 'COOLDOWN':
+      default:
+        return 0.3;
+    }
   }
 }
