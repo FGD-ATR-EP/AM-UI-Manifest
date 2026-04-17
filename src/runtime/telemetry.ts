@@ -1,6 +1,6 @@
 import type { SystemSnapshot, SystemState } from '../contracts/workflow';
 
-export type TelemetryEventType = 'request_started' | 'request_succeeded' | 'request_failed';
+export type TelemetryEventType = 'request_started' | 'request_succeeded' | 'request_failed' | 'fallback_triggered';
 
 export interface TelemetrySnapshot {
   runtime: {
@@ -15,6 +15,7 @@ export interface TelemetrySnapshot {
     avgLatencyMs: number;
     errorRate: number;
     throughputPerMinute: number;
+    fallbackCountWindow: number;
   };
 }
 
@@ -22,6 +23,10 @@ interface RequestRecord {
   startedAt: number;
   latencyMs?: number;
   status: 'started' | 'succeeded' | 'failed';
+}
+
+interface FallbackRecord {
+  at: number;
 }
 
 const WINDOW_MS = 60_000;
@@ -34,6 +39,7 @@ export class TelemetryStore {
   };
 
   private records: RequestRecord[] = [];
+  private fallbacks: FallbackRecord[] = [];
 
   updateRuntime(snapshot: SystemSnapshot): TelemetrySnapshot {
     this.runtime = { ...snapshot };
@@ -42,6 +48,11 @@ export class TelemetryStore {
 
   recordEvent(eventType: TelemetryEventType, now = Date.now(), latencyMs?: number): TelemetrySnapshot {
     this.prune(now);
+
+    if (eventType === 'fallback_triggered') {
+      this.fallbacks.push({ at: now });
+      return this.getSnapshot(now);
+    }
 
     if (eventType === 'request_started') {
       this.records.push({ startedAt: now, status: 'started' });
@@ -76,6 +87,7 @@ export class TelemetryStore {
     const errorRate = completed.length ? failures / completed.length : 0;
     const throughputPerMinute = completed.length;
     const requestCountWindow = this.records.length;
+    const fallbackCountWindow = this.fallbacks.length;
     const loadLevel = Math.min(1.5, inFlightRequests * 0.3 + throughputPerMinute / 20 + this.runtime.energyLevel * 0.25);
 
     return {
@@ -90,12 +102,14 @@ export class TelemetryStore {
         inFlightRequests,
         avgLatencyMs,
         errorRate,
-        throughputPerMinute
+        throughputPerMinute,
+        fallbackCountWindow
       }
     };
   }
 
   private prune(now: number): void {
     this.records = this.records.filter((item) => now - item.startedAt <= WINDOW_MS);
+    this.fallbacks = this.fallbacks.filter((item) => now - item.at <= WINDOW_MS);
   }
 }

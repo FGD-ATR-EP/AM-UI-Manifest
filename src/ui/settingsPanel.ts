@@ -3,22 +3,22 @@ import { getConfig, updateConfig } from '../settings/config';
 export class SettingsPanel {
   private panel: HTMLElement;
   private button: HTMLButtonElement;
-  private apiInput: HTMLInputElement;
+  private basePathInput: HTMLInputElement;
   private syncButton: HTMLButtonElement;
 
   constructor(private root: HTMLElement, private onUpdated: (message: string) => void) {
     this.panel = this.el<HTMLElement>('panel-settings');
     this.button = this.el<HTMLButtonElement>('btn-settings');
-    this.apiInput = this.el<HTMLInputElement>('cfg-api');
+    this.basePathInput = this.el<HTMLInputElement>('cfg-base-path');
     this.syncButton = this.el<HTMLButtonElement>('btn-connect');
 
     const cfg = getConfig();
-    this.apiInput.value = cfg.apiBase;
+    this.basePathInput.value = cfg.apiBasePath;
 
     this.button.onclick = () => this.panel.classList.toggle('hidden');
     this.syncButton.onclick = () => {
-      updateConfig({ apiBase: this.apiInput.value.trim() || cfg.apiBase });
-      this.onUpdated('Gateway configuration updated.');
+      updateConfig({ apiBasePath: this.basePathInput.value.trim() });
+      this.onUpdated('Safe runtime configuration updated.');
       this.panel.classList.add('hidden');
     };
   }

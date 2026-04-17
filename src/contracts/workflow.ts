@@ -11,6 +11,8 @@ export interface ManifestResult {
   energy: number;
   entropy: number;
   colors: string[];
+  provider?: "proxy" | "fallback-provider" | "local-heuristic";
+  fallbackReason?: string;
 }
 
 export interface CreativeIntent {
