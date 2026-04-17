@@ -11,6 +11,7 @@ export class HUD {
   private avgLatency: HTMLElement;
   private errorRate: HTMLElement;
   private throughput: HTMLElement;
+  private fallbackCount: HTMLElement;
   private logs: HTMLElement;
   private target: HTMLElement;
   private targetContent: HTMLElement;
@@ -25,6 +26,7 @@ export class HUD {
     this.avgLatency = this.el('metric-avg-latency');
     this.errorRate = this.el('metric-error-rate');
     this.throughput = this.el('metric-throughput');
+    this.fallbackCount = this.el('metric-fallbacks');
     this.logs = this.el('console-logs');
     this.target = this.el('visual-target');
     this.targetContent = this.el('target-content');
@@ -51,6 +53,7 @@ export class HUD {
     this.avgLatency.textContent = `${network.avgLatencyMs.toFixed(0)}ms`;
     this.errorRate.textContent = `${(network.errorRate * 100).toFixed(0)}%`;
     this.throughput.textContent = `${network.throughputPerMinute}/min`;
+    this.fallbackCount.textContent = `${network.fallbackCountWindow} / 60s`;
   }
 
   log(message: string, type: 'SYS' | 'API' | 'ERR' = 'SYS'): void {

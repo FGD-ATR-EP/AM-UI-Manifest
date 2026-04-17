@@ -28,6 +28,7 @@ function mountAppShell(root: HTMLElement): void {
             <div class="flex justify-between"><span class="text-gray-400">AVG LATENCY</span><span id="metric-avg-latency" class="text-emerald-300">0ms</span></div>
             <div class="flex justify-between"><span class="text-gray-400">ERROR RATE</span><span id="metric-error-rate" class="text-emerald-300">0%</span></div>
             <div class="flex justify-between"><span class="text-gray-400">THROUGHPUT</span><span id="metric-throughput" class="text-emerald-300">0/min</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">FALLBACKS</span><span id="metric-fallbacks" class="text-emerald-300">0 / 60s</span></div>
           </div>
           <div id="console-logs" class="h-20 overflow-y-auto pt-2 border-t border-white/10 font-mono text-[9px] text-gray-500 space-y-1 mt-2"><div>[SYS] Runtime ready.</div></div>
         </div>
@@ -35,8 +36,8 @@ function mountAppShell(root: HTMLElement): void {
         <div class="flex flex-col items-end">
           <button id="btn-settings" class="p-2 glass-panel rounded-full hover:bg-white/10">⚙️</button>
           <div id="panel-settings" class="glass-panel rounded-xl p-4 mt-2 w-72 hidden transition-all">
-            <h3 class="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">Gateway Configuration</h3>
-            <div class="space-y-3 font-mono text-[10px]"><label class="block text-gray-500 mb-1">API Base</label><input type="text" id="cfg-api" class="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono"><button id="btn-connect" class="w-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 rounded py-1.5 transition-colors">Apply & Sync</button></div>
+            <h3 class="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">Runtime Configuration</h3>
+            <div class="space-y-3 font-mono text-[10px]"><label class="block text-gray-500 mb-1">Proxy Base Path</label><input type="text" id="cfg-base-path" placeholder="(optional) e.g. /internal" class="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono"><button id="btn-connect" class="w-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 rounded py-1.5 transition-colors">Apply & Sync</button></div>
           </div>
         </div>
       </div>
@@ -79,6 +80,16 @@ function bootstrap(): void {
 
   const syncHUD = () => hud.updateState(telemetry.getSnapshot());
 
+  window.addEventListener('intent:fallback', (event: Event) => {
+    const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+    telemetry.recordEvent('fallback_triggered');
+    syncHUD();
+    hud.logStructured('fallback_triggered', {
+      ...detail,
+      timestamp: new Date().toISOString()
+    }, 'ERR');
+  });
+
   const animate = () => {
     particles.render(machine.state);
     requestAnimationFrame(animate);
@@ -111,6 +122,8 @@ function bootstrap(): void {
       hud.logStructured('request_succeeded', {
         latencyMs: Number(latencyMs.toFixed(1)),
         colors: result.colors,
+        provider: result.provider ?? 'proxy',
+        fallbackReason: result.fallbackReason ?? null,
         timestamp: new Date().toISOString()
       });
       bus.emit('MANIFEST_READY', { intent, result });
