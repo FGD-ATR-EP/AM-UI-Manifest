@@ -1,0 +1,140 @@
+import { EventBus } from './core/eventBus';
+import type { AppEventMap } from './contracts/events';
+import { ParticleEngine } from './render/particleEngine';
+import { interpretIntent } from './runtime/intentInterpreter';
+import { RuntimeStateMachine } from './runtime/stateMachine';
+import { HUD } from './ui/hud';
+import { SettingsPanel } from './ui/settingsPanel';
+
+function mountAppShell(root: HTMLElement): void {
+  root.innerHTML = `
+    <div id="canvas-container" class="absolute inset-0 z-0"></div>
+    <div class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-6 text-sm text-slate-100">
+      <div class="flex justify-between items-start pointer-events-auto w-full">
+        <div class="glass-panel rounded-xl p-4 w-64 space-y-3">
+          <div class="flex justify-between items-center border-b border-white/10 pb-2">
+            <span class="font-bold tracking-wider text-xs text-indigo-200 uppercase">Aetherium OS</span>
+          </div>
+          <div class="space-y-2 font-mono text-[10px]">
+            <div class="flex justify-between"><span class="text-gray-400">STATE</span><span id="metric-state" class="text-cyan-400">IDLE</span></div>
+            <div class="flex justify-between items-center"><span class="text-gray-400">ENERGY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-energy" class="h-full bg-cyan-400 w-[20%]"></div></div></div>
+            <div class="flex justify-between items-center"><span class="text-gray-400">ENTROPY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-entropy" class="h-full bg-purple-400 w-[10%]"></div></div></div>
+          </div>
+          <div id="console-logs" class="h-20 overflow-y-auto pt-2 border-t border-white/10 font-mono text-[9px] text-gray-500 space-y-1 mt-2"><div>[SYS] Runtime ready.</div></div>
+        </div>
+
+        <div class="flex flex-col items-end">
+          <button id="btn-settings" class="p-2 glass-panel rounded-full hover:bg-white/10">⚙️</button>
+          <div id="panel-settings" class="glass-panel rounded-xl p-4 mt-2 w-72 hidden transition-all">
+            <h3 class="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">Gateway Configuration</h3>
+            <div class="space-y-3 font-mono text-[10px]"><label class="block text-gray-500 mb-1">API Base</label><input type="text" id="cfg-api" class="w-full bg-black/50 border border-white/10 rounded px-2 py-1 text-gray-300 font-mono"><button id="btn-connect" class="w-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 rounded py-1.5 transition-colors">Apply & Sync</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="w-full max-w-2xl mx-auto pointer-events-auto pb-4 sm:pb-8">
+        <div id="visual-target" class="mb-4 glass-panel rounded-xl p-4 hidden">
+          <div class="flex items-center justify-between border-b border-white/5 pb-2 mb-3"><span class="text-xs text-gray-400 font-mono">Cognitive Manifestation</span></div>
+          <div id="target-content" class="text-sm text-gray-300"></div>
+        </div>
+
+        <div id="composer-container" class="glass-panel rounded-2xl p-2 flex items-center space-x-2 transition-all duration-300 border border-white/10">
+          <input type="text" id="composer-input" class="flex-1 bg-transparent text-white placeholder-gray-500 text-sm sm:text-base py-2 px-2" placeholder="ป้อนเจตจำนงเชิงปัญญา (Cognitive Intent)...">
+          <button id="btn-emit" class="px-4 py-2 sm:py-3 bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/30 text-indigo-200 hover:text-white rounded-xl transition-all">EMIT</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bootstrap(): void {
+  const root = document.getElementById('app-root');
+  if (!root) throw new Error('app-root missing');
+
+  mountAppShell(root);
+
+  const bus = new EventBus();
+  const machine = new RuntimeStateMachine();
+  const hud = new HUD(root);
+  const canvasContainer = root.querySelector<HTMLElement>('#canvas-container');
+
+  if (!canvasContainer) throw new Error('canvas-container missing');
+
+  const particles = new ParticleEngine(canvasContainer);
+  new SettingsPanel(root, (msg) => hud.log(msg));
+
+  const composer = root.querySelector<HTMLInputElement>('#composer-input');
+  const emitButton = root.querySelector<HTMLButtonElement>('#btn-emit');
+  if (!composer || !emitButton) throw new Error('composer controls missing');
+
+  const animate = () => {
+    particles.render(machine.state);
+    requestAnimationFrame(animate);
+  };
+  animate();
+
+  const applyState = (next: Parameters<RuntimeStateMachine['transition']>[0]) => {
+    const state = machine.transition(next);
+    hud.updateState(state);
+  };
+
+  bus.on('INTENT_SUBMITTED', async ({ intent }) => {
+    try {
+      applyState('THINKING');
+      hud.log(`Capturing intent: "${intent}"`);
+      const result = await interpretIntent(intent);
+      bus.emit('MANIFEST_READY', { intent, result });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Unknown runtime error';
+      bus.emit('ERROR', { message, cause });
+    }
+  });
+
+  bus.on('MANIFEST_READY', ({ result }: AppEventMap['MANIFEST_READY']) => {
+    applyState('EMITTING');
+    machine.applyManifest(result.energy, result.entropy);
+    hud.updateState(machine.state);
+    particles.applyColors(result.colors);
+    hud.showManifest(result);
+    hud.log('Manifest ready. Rendering field mutation.', 'API');
+    bus.emit('RENDER_DONE', { state: 'EMITTING' });
+  });
+
+  bus.on('RENDER_DONE', () => {
+    applyState('COOLDOWN');
+    setTimeout(() => {
+      applyState('IDLE');
+      composer.disabled = false;
+      emitButton.disabled = false;
+    }, 1500);
+  });
+
+  bus.on('ERROR', ({ message }) => {
+    hud.log(`Link Error: ${message}`, 'ERR');
+    if (machine.state.mode !== 'COOLDOWN') {
+      applyState('COOLDOWN');
+      setTimeout(() => applyState('IDLE'), 500);
+    }
+    composer.disabled = false;
+    emitButton.disabled = false;
+  });
+
+  const submitIntent = () => {
+    const intent = composer.value.trim();
+    if (!intent) return;
+    composer.value = '';
+    composer.disabled = true;
+    emitButton.disabled = true;
+    bus.emit('INTENT_SUBMITTED', { intent });
+  };
+
+  emitButton.onclick = submitIntent;
+  composer.onkeypress = (e) => {
+    if (e.key === 'Enter') submitIntent();
+  };
+
+  window.onresize = () => particles.resize();
+  hud.updateState(machine.state);
+}
+
+bootstrap();
