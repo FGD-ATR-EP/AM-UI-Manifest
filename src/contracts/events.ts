@@ -1,8 +1,8 @@
-import type { SystemState, WorkflowContracts } from './workflow';
+import type { ManifestResult, SystemState } from './workflow';
 
 export type AppEventMap = {
   INTENT_SUBMITTED: { intent: string };
-  MANIFEST_READY: { intent: string; contracts: WorkflowContracts };
+  MANIFEST_READY: { intent: string; result: ManifestResult };
   RENDER_DONE: { state: SystemState };
   ERROR: { message: string; cause?: unknown };
 };
