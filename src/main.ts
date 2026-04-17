@@ -3,6 +3,7 @@ import type { AppEventMap } from './contracts/events';
 import { ParticleEngine } from './render/particleEngine';
 import { interpretIntent } from './runtime/intentInterpreter';
 import { RuntimeStateMachine } from './runtime/stateMachine';
+import { TelemetryStore } from './runtime/telemetry';
 import { HUD } from './ui/hud';
 import { SettingsPanel } from './ui/settingsPanel';
 
@@ -11,7 +12,7 @@ function mountAppShell(root: HTMLElement): void {
     <div id="canvas-container" class="absolute inset-0 z-0"></div>
     <div class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-6 text-sm text-slate-100">
       <div class="flex justify-between items-start pointer-events-auto w-full">
-        <div class="glass-panel rounded-xl p-4 w-64 space-y-3">
+        <div class="glass-panel rounded-xl p-4 w-80 space-y-3">
           <div class="flex justify-between items-center border-b border-white/10 pb-2">
             <span class="font-bold tracking-wider text-xs text-indigo-200 uppercase">Aetherium OS</span>
           </div>
@@ -19,6 +20,14 @@ function mountAppShell(root: HTMLElement): void {
             <div class="flex justify-between"><span class="text-gray-400">STATE</span><span id="metric-state" class="text-cyan-400">IDLE</span></div>
             <div class="flex justify-between items-center"><span class="text-gray-400">ENERGY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-energy" class="h-full bg-cyan-400 w-[20%]"></div></div></div>
             <div class="flex justify-between items-center"><span class="text-gray-400">ENTROPY</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-entropy" class="h-full bg-purple-400 w-[10%]"></div></div></div>
+            <div class="flex justify-between items-center"><span class="text-gray-400">LOAD</span><div class="w-24 h-1 bg-gray-800 rounded-full overflow-hidden"><div id="bar-load" class="h-full bg-amber-400 w-[8%]"></div></div></div>
+          </div>
+          <div class="pt-2 border-t border-white/10 space-y-1 font-mono text-[10px]">
+            <div class="flex justify-between"><span class="text-gray-400">REQUESTS</span><span id="metric-request-count" class="text-emerald-300">0 / 60s</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">IN-FLIGHT</span><span id="metric-in-flight" class="text-emerald-300">0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">AVG LATENCY</span><span id="metric-avg-latency" class="text-emerald-300">0ms</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">ERROR RATE</span><span id="metric-error-rate" class="text-emerald-300">0%</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">THROUGHPUT</span><span id="metric-throughput" class="text-emerald-300">0/min</span></div>
           </div>
           <div id="console-logs" class="h-20 overflow-y-auto pt-2 border-t border-white/10 font-mono text-[9px] text-gray-500 space-y-1 mt-2"><div>[SYS] Runtime ready.</div></div>
         </div>
@@ -55,6 +64,7 @@ function bootstrap(): void {
 
   const bus = new EventBus();
   const machine = new RuntimeStateMachine();
+  const telemetry = new TelemetryStore();
   const hud = new HUD(root);
   const canvasContainer = root.querySelector<HTMLElement>('#canvas-container');
 
@@ -67,6 +77,8 @@ function bootstrap(): void {
   const emitButton = root.querySelector<HTMLButtonElement>('#btn-emit');
   if (!composer || !emitButton) throw new Error('composer controls missing');
 
+  const syncHUD = () => hud.updateState(telemetry.getSnapshot());
+
   const animate = () => {
     particles.render(machine.state);
     requestAnimationFrame(animate);
@@ -75,17 +87,43 @@ function bootstrap(): void {
 
   const applyState = (next: Parameters<RuntimeStateMachine['transition']>[0]) => {
     const state = machine.transition(next);
-    hud.updateState(state);
+    telemetry.updateRuntime(state);
+    syncHUD();
   };
 
   bus.on('INTENT_SUBMITTED', async ({ intent }) => {
+    const startedAt = performance.now();
+
     try {
       applyState('THINKING');
-      hud.log(`Capturing intent: "${intent}"`);
+      telemetry.recordEvent('request_started');
+      syncHUD();
+      hud.logStructured('request_started', {
+        intentPreview: intent.slice(0, 60),
+        intentLength: intent.length,
+        timestamp: new Date().toISOString()
+      });
+
       const result = await interpretIntent(intent);
+      const latencyMs = performance.now() - startedAt;
+      telemetry.recordEvent('request_succeeded', Date.now(), latencyMs);
+      syncHUD();
+      hud.logStructured('request_succeeded', {
+        latencyMs: Number(latencyMs.toFixed(1)),
+        colors: result.colors,
+        timestamp: new Date().toISOString()
+      });
       bus.emit('MANIFEST_READY', { intent, result });
     } catch (cause) {
+      const latencyMs = performance.now() - startedAt;
+      telemetry.recordEvent('request_failed', Date.now(), latencyMs);
+      syncHUD();
       const message = cause instanceof Error ? cause.message : 'Unknown runtime error';
+      hud.logStructured('request_failed', {
+        latencyMs: Number(latencyMs.toFixed(1)),
+        message,
+        timestamp: new Date().toISOString()
+      }, 'ERR');
       bus.emit('ERROR', { message, cause });
     }
   });
@@ -93,7 +131,8 @@ function bootstrap(): void {
   bus.on('MANIFEST_READY', ({ result }: AppEventMap['MANIFEST_READY']) => {
     applyState('EMITTING');
     machine.applyManifest(result.energy, result.entropy);
-    hud.updateState(machine.state);
+    telemetry.updateRuntime(machine.state);
+    syncHUD();
     particles.applyColors(result.colors);
     hud.showManifest(result);
     hud.log('Manifest ready. Rendering field mutation.', 'API');
@@ -134,7 +173,8 @@ function bootstrap(): void {
   };
 
   window.onresize = () => particles.resize();
-  hud.updateState(machine.state);
+  telemetry.updateRuntime(machine.state);
+  syncHUD();
 }
 
 bootstrap();
