@@ -1,2 +1,2 @@
-# GenUI-Manifest
+# AM-UI-Manifest
 การออกแบบอินเทอร์เฟซด้วย AI เชิงปรับตัว”
