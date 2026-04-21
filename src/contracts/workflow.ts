@@ -39,6 +39,9 @@ export interface CreativeIntent {
   normalized_intent: NormalizedIntent;
   language_detection: LanguageDetection;
   output_constraints: string[];
+  source_language: string;
+  source_script: string;
+  language_confidence: number;
 }
 
 export interface ManifestationContract {
@@ -83,6 +86,9 @@ export interface ProvenanceAudit {
   semantic_mapping_trace?: string[];
   generation_cost: number;
   session_replay_id: string;
+  detected_language?: string;
+  detected_script?: string;
+  preprocessing_steps?: string[];
 }
 
 export interface WorkflowContracts {

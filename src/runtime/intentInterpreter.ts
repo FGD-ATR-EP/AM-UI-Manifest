@@ -1,4 +1,5 @@
 import type { ManifestResult } from '../contracts/workflow';
+import { preprocessIntent } from './language';
 import { getConfig } from '../settings/config';
 import { preprocessIntent, type IntentPreprocessResult } from './language';
 
@@ -7,6 +8,8 @@ interface IntentResponsePayload {
   energy?: unknown;
   entropy?: unknown;
   colors?: unknown;
+  creativeIntent?: unknown;
+  provenanceAudit?: unknown;
 }
 
 type FallbackType = 'fallback-provider' | 'local-heuristic';
@@ -118,17 +121,21 @@ async function callIntentEndpoint(url: string, intent: string, preprocess: Inten
   }
 
   const data = (await response.json()) as IntentResponsePayload;
-  return normalizeResult(data);
+  return normalizeResult(data, preprocessed);
 }
 
-function normalizeResult(payload: IntentResponsePayload): ManifestResult {
+function normalizeResult(payload: IntentResponsePayload, preprocessed: ReturnType<typeof preprocessIntent>): ManifestResult {
   return {
     interpretation: typeof payload.interpretation === 'string' ? payload.interpretation : 'No interpretation',
     energy: sanitizeLevel(payload.energy, 0.2),
     entropy: sanitizeLevel(payload.entropy, 0.1),
     colors: Array.isArray(payload.colors) && payload.colors.every((color) => typeof color === 'string')
       ? payload.colors
-      : DEFAULT_COLORS
+      : DEFAULT_COLORS,
+    creativeIntent: isCreativeIntent(payload.creativeIntent) ? payload.creativeIntent : preprocessed.creativeIntent,
+    provenanceAudit: isProvenanceAudit(payload.provenanceAudit)
+      ? { ...preprocessed.provenanceAuditPatch, ...payload.provenanceAudit }
+      : preprocessed.provenanceAuditPatch
   };
 }
 
@@ -141,7 +148,7 @@ function sanitizeLevel(raw: unknown, fallback: number): number {
   return Math.min(1.5, Math.max(0, numeric));
 }
 
-function localHeuristicFallback(intent: string): ManifestResult {
+function localHeuristicFallback(intent: string, preprocessed: ReturnType<typeof preprocessIntent>): ManifestResult {
   const normalized = intent.trim().toLowerCase();
   const score = Math.min(1, normalized.length / 80);
 
@@ -162,7 +169,9 @@ function localHeuristicFallback(intent: string): ManifestResult {
     entropy,
     colors,
     provider: 'local-heuristic',
-    fallbackReason: isCircuitOpen() ? 'circuit_open_or_all_upstream_failed' : 'all_upstream_failed'
+    fallbackReason: isCircuitOpen() ? 'circuit_open_or_all_upstream_failed' : 'all_upstream_failed',
+    creativeIntent: preprocessed.creativeIntent,
+    provenanceAudit: preprocessed.provenanceAuditPatch
   };
 }
 
