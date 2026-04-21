@@ -13,8 +13,21 @@ export interface ManifestResult {
   colors: string[];
   provider?: "proxy" | "fallback-provider" | "local-heuristic";
   fallbackReason?: string;
-  creativeIntent?: CreativeIntent;
-  provenanceAudit?: Partial<ProvenanceAudit>;
+  creative_intent?: CreativeIntent;
+  provenance_audit?: Partial<ProvenanceAudit>;
+}
+
+export interface LanguageDetection {
+  language: string;
+  script: string;
+  confidence: number;
+  method: 'heuristic';
+}
+
+export interface NormalizedIntent {
+  original_text: string;
+  canonical_text: string;
+  tokens: string[];
 }
 
 export interface CreativeIntent {
@@ -23,6 +36,8 @@ export interface CreativeIntent {
   emotional_valence: number;
   energy_level: number;
   semantic_concepts: string[];
+  normalized_intent: NormalizedIntent;
+  language_detection: LanguageDetection;
   output_constraints: string[];
   source_language: string;
   source_script: string;
@@ -67,6 +82,8 @@ export interface ProvenanceAudit {
   brand_profile_used: string;
   policy_decisions: string[];
   rejected_transitions: string[];
+  language_detection?: LanguageDetection;
+  semantic_mapping_trace?: string[];
   generation_cost: number;
   session_replay_id: string;
   detected_language?: string;

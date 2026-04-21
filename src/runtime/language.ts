@@ -1,158 +1,141 @@
-import type { CreativeIntent, ProvenanceAudit } from '../contracts/workflow';
-
-export interface LanguageDetectionResult {
-  languageCode: string;
-  script: string;
-  confidence: number;
-  normalizedText: string;
-  semanticConcepts: string[];
-}
+import type { LanguageDetection, NormalizedIntent } from '../contracts/workflow';
 
 export interface IntentPreprocessResult {
-  normalizedIntent: string;
-  detection: LanguageDetectionResult;
-  creativeIntent: CreativeIntent;
-  provenanceAuditPatch: Partial<ProvenanceAudit>;
+  language_detection: LanguageDetection;
+  normalized_intent: NormalizedIntent;
+  semantic_concepts: string[];
+  semantic_mapping_trace: string[];
+  inferred_goal_type: string;
+  emotional_valence: number;
 }
 
-const SCRIPT_PATTERNS: Array<{ script: string; regex: RegExp; defaultLanguage: string }> = [
-  { script: 'Thai', regex: /[\u0E00-\u0E7F]/, defaultLanguage: 'th' },
-  { script: 'Han', regex: /[\u4E00-\u9FFF]/, defaultLanguage: 'zh' },
-  { script: 'HiraganaKatakana', regex: /[\u3040-\u30FF]/, defaultLanguage: 'ja' },
-  { script: 'Hangul', regex: /[\uAC00-\uD7AF]/, defaultLanguage: 'ko' },
-  { script: 'Cyrillic', regex: /[\u0400-\u04FF]/, defaultLanguage: 'ru' },
-  { script: 'Arabic', regex: /[\u0600-\u06FF]/, defaultLanguage: 'ar' },
-  { script: 'Latin', regex: /[A-Za-z]/, defaultLanguage: 'en' }
+type ScriptLabel = 'thai' | 'latin' | 'cyrillic' | 'han' | 'kana' | 'arabic' | 'devanagari' | 'unknown';
+
+const SEMANTIC_CONCEPT_MAP: Array<{ pattern: RegExp; concept: string }> = [
+  { pattern: /\blaunch|เปิดตัว|release\b/i, concept: 'launch' },
+  { pattern: /\burgent|ด่วน|asap\b/i, concept: 'urgency' },
+  { pattern: /\bcalm|สงบ|นิ่ง|zen\b/i, concept: 'calm' },
+  { pattern: /\bfocus|โฟกัส|concentraci[oó]n\b/i, concept: 'focus' },
+  { pattern: /\benergy|พลัง|energ[ií]a\b/i, concept: 'energy' },
+  { pattern: /\bsoft|ละมุน|gentle\b/i, concept: 'softness' },
+  { pattern: /\bbold|ชัด|กล้า\b/i, concept: 'boldness' },
+  { pattern: /\bminimal|มินิมอล|minimalista\b/i, concept: 'minimalism' },
+  { pattern: /\btrust|เชื่อถือ|confianza\b/i, concept: 'trust' },
+  { pattern: /\bluxury|หรู|lujo\b/i, concept: 'luxury' }
 ];
 
-const SEMANTIC_DICTIONARY: Array<{ concept: string; patterns: RegExp[] }> = [
-  { concept: 'urgency', patterns: [/ด่วน/, /asap/i, /urgent/i, /ทันที/] },
-  { concept: 'launch', patterns: [/เปิดตัว/, /launch/i, /debut/i] },
-  { concept: 'calm', patterns: [/สงบ/, /ผ่อนคลาย/, /zen/i, /calm/i, /focus/i] },
-  { concept: 'growth', patterns: [/เติบโต/, /scale/i, /expand/i, /growth/i] },
-  { concept: 'celebration', patterns: [/เฉลิมฉลอง/, /celebrate/i, /festival/i] },
-  { concept: 'premium', patterns: [/หรู/, /luxury/i, /premium/i] },
-  { concept: 'innovation', patterns: [/นวัตกรรม/, /innovat/i, /future/i] },
-  { concept: 'trust', patterns: [/น่าเชื่อถือ/, /มั่นใจ/, /trust/i, /reliable/i] }
-];
-
-const LOCAL_GOAL_HINTS: Array<{ goalType: string; patterns: RegExp[] }> = [
-  { goalType: 'marketing-campaign', patterns: [/campaign/i, /แคมเปญ/, /promot/i] },
-  { goalType: 'brand-story', patterns: [/brand/i, /แบรนด์/, /story/i, /narrative/i] },
-  { goalType: 'product-launch', patterns: [/launch/i, /เปิดตัว/, /new product/i] }
+const GOAL_MAP: Array<{ pattern: RegExp; goal: string }> = [
+  { pattern: /\blaunch|เปิดตัว|release\b/i, goal: 'launch_campaign' },
+  { pattern: /\bbrand|แบรนด์\b/i, goal: 'brand_presence' },
+  { pattern: /\bad|โฆษณา|campaign\b/i, goal: 'marketing_asset' }
 ];
 
 export function preprocessIntent(intent: string): IntentPreprocessResult {
-  const normalizedIntent = normalizeIntentText(intent);
-  const detection = detectLanguageAndScript(normalizedIntent);
-  const semanticConcepts = mapLocalExpressionsToConcepts(normalizedIntent);
-  const goalType = inferGoalType(normalizedIntent);
-  const energyLevel = inferEnergyLevel(normalizedIntent, semanticConcepts);
-  const emotionalValence = inferEmotionalValence(normalizedIntent, semanticConcepts);
-
-  const creativeIntent: CreativeIntent = {
-    prompt_text: normalizedIntent,
-    goal_type: goalType,
-    emotional_valence: emotionalValence,
-    energy_level: energyLevel,
-    semantic_concepts: semanticConcepts,
-    output_constraints: [],
-    source_language: detection.languageCode,
-    source_script: detection.script,
-    language_confidence: detection.confidence
-  };
+  const normalizedText = normalizeWhitespace(intent);
+  const script = detectScript(normalizedText);
+  const language_detection = detectLanguage(normalizedText, script);
+  const canonical_text = canonicalize(normalizedText);
+  const tokens = canonical_text.split(/\s+/).filter(Boolean);
+  const semantic_mapping_trace: string[] = [];
+  const semantic_concepts = extractSemanticConcepts(normalizedText, semantic_mapping_trace);
+  const inferred_goal_type = inferGoalType(normalizedText);
+  const emotional_valence = inferEmotionalValence(normalizedText, semantic_concepts);
 
   return {
-    normalizedIntent,
-    detection: {
-      ...detection,
-      semanticConcepts
+    language_detection,
+    normalized_intent: {
+      original_text: intent,
+      canonical_text,
+      tokens
     },
-    creativeIntent,
-    provenanceAuditPatch: {
-      detected_language: detection.languageCode,
-      detected_script: detection.script,
-      preprocessing_steps: [
-        'normalize_intent_text',
-        'detect_language_script',
-        'map_local_idioms_to_semantic_concepts'
-      ]
-    }
+    semantic_concepts,
+    semantic_mapping_trace,
+    inferred_goal_type,
+    emotional_valence
   };
 }
 
-export function normalizeIntentText(intent: string): string {
-  return intent
-    .normalize('NFKC')
-    .replace(/\s+/g, ' ')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .trim();
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
-export function detectLanguageAndScript(input: string): LanguageDetectionResult {
-  for (const { script, regex, defaultLanguage } of SCRIPT_PATTERNS) {
-    if (regex.test(input)) {
-      return {
-        languageCode: defaultLanguage,
-        script,
-        confidence: script === 'Latin' ? 0.65 : 0.9,
-        normalizedText: input,
-        semanticConcepts: []
-      };
+function canonicalize(text: string): string {
+  return text.normalize('NFKC').toLowerCase();
+}
+
+function detectScript(text: string): ScriptLabel {
+  if (/[ก-๙]/.test(text)) return 'thai';
+  if (/[\u3040-\u30ff]/.test(text)) return 'kana';
+  if (/[\u4e00-\u9fff]/.test(text)) return 'han';
+  if (/[\u0600-\u06ff]/.test(text)) return 'arabic';
+  if (/[\u0900-\u097f]/.test(text)) return 'devanagari';
+  if (/[\u0400-\u04ff]/.test(text)) return 'cyrillic';
+  if (/[a-z]/i.test(text)) return 'latin';
+  return 'unknown';
+}
+
+function detectLanguage(text: string, script: ScriptLabel): LanguageDetection {
+  if (script === 'thai') {
+    return { language: 'th', script, confidence: 0.97, method: 'heuristic' };
+  }
+  if (script === 'kana' || script === 'han') {
+    return { language: 'ja', script, confidence: 0.7, method: 'heuristic' };
+  }
+  if (script === 'cyrillic') {
+    return { language: 'ru', script, confidence: 0.7, method: 'heuristic' };
+  }
+  if (script === 'arabic') {
+    return { language: 'ar', script, confidence: 0.8, method: 'heuristic' };
+  }
+  if (script === 'devanagari') {
+    return { language: 'hi', script, confidence: 0.8, method: 'heuristic' };
+  }
+  if (script === 'latin') {
+    const lower = text.toLowerCase();
+    if (/\b(el|la|para|con|energ[ií]a)\b/.test(lower)) {
+      return { language: 'es', script, confidence: 0.6, method: 'heuristic' };
     }
+    return { language: 'en', script, confidence: 0.6, method: 'heuristic' };
   }
 
-  return {
-    languageCode: 'und',
-    script: 'Unknown',
-    confidence: 0.3,
-    normalizedText: input,
-    semanticConcepts: []
-  };
+  return { language: 'und', script, confidence: 0.2, method: 'heuristic' };
 }
 
-export function mapLocalExpressionsToConcepts(input: string): string[] {
+function extractSemanticConcepts(text: string, trace: string[]): string[] {
   const concepts = new Set<string>();
 
-  for (const item of SEMANTIC_DICTIONARY) {
-    if (item.patterns.some((pattern) => pattern.test(input))) {
-      concepts.add(item.concept);
+  for (const mapper of SEMANTIC_CONCEPT_MAP) {
+    if (mapper.pattern.test(text)) {
+      concepts.add(mapper.concept);
+      trace.push(`${mapper.pattern.source} -> ${mapper.concept}`);
     }
   }
 
   if (concepts.size === 0) {
-    concepts.add('general-intent');
+    concepts.add('general_intent');
+    trace.push('default -> general_intent');
   }
 
-  return [...concepts];
+  return Array.from(concepts);
 }
 
-function inferGoalType(input: string): string {
-  const matched = LOCAL_GOAL_HINTS.find((item) => item.patterns.some((pattern) => pattern.test(input)));
-  return matched?.goalType ?? 'general-creative';
+function inferGoalType(text: string): string {
+  for (const goal of GOAL_MAP) {
+    if (goal.pattern.test(text)) {
+      return goal.goal;
+    }
+  }
+
+  return 'open_exploration';
 }
 
-function inferEnergyLevel(input: string, concepts: string[]): number {
-  if (/intense|power|urgent|ด่วน|เร่ง/i.test(input) || concepts.includes('urgency')) {
-    return 1.1;
-  }
+function inferEmotionalValence(text: string, concepts: string[]): number {
+  const positive = /\bhappy|joy|ดีใจ|สดใส|success|win\b/i.test(text);
+  const negative = /\bsad|angry|เครียด|fear|risk\b/i.test(text);
 
-  if (/calm|soft|zen|สงบ|ละมุน/i.test(input) || concepts.includes('calm')) {
-    return 0.35;
-  }
-
-  return 0.6;
-}
-
-function inferEmotionalValence(input: string, concepts: string[]): number {
-  if (/happy|joy|celebrate|ดีใจ|สนุก/i.test(input) || concepts.includes('celebration')) {
-    return 0.8;
-  }
-
-  if (/serious|strict|วิตก|กังวล/i.test(input)) {
-    return 0.3;
-  }
-
-  return 0.6;
+  if (positive) return 0.75;
+  if (negative) return 0.25;
+  if (concepts.includes('calm')) return 0.55;
+  if (concepts.includes('urgency')) return 0.45;
+  return 0.5;
 }

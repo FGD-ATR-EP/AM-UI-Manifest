@@ -141,7 +141,7 @@ function bootstrap(): void {
     hud.logStructured('intent_provenance', {
       ...detail,
       timestamp: new Date().toISOString()
-    }, 'SYS');
+    }, 'API');
   });
 
   const animate = () => {

@@ -1,6 +1,7 @@
 import type { ManifestResult } from '../contracts/workflow';
 import { preprocessIntent } from './language';
 import { getConfig } from '../settings/config';
+import { preprocessIntent, type IntentPreprocessResult } from './language';
 
 interface IntentResponsePayload {
   interpretation?: unknown;
@@ -32,25 +33,15 @@ let circuitOpenUntil = 0;
 
 export async function interpretIntent(intent: string): Promise<ManifestResult> {
   const cfg = getConfig();
-  const preprocessed = preprocessIntent(intent);
-
-  emitProvenanceAudit({
-    stage: 'preprocess',
-    creativeIntent: preprocessed.creativeIntent,
-    provenanceAudit: preprocessed.provenanceAuditPatch,
-    timestamp: new Date().toISOString()
-  });
+  const preprocess = preprocessIntent(intent);
+  emitPreprocessAudit(preprocess);
+  const intentForInference = preprocess.normalized_intent.canonical_text;
 
   if (!isCircuitOpen()) {
     try {
-      const result = await executeWithRetry(buildEndpointUrl(cfg.apiBasePath, cfg.intentProxyPath), intent, preprocessed);
+      const result = await executeWithRetry(buildEndpointUrl(cfg.apiBasePath, cfg.intentProxyPath), intentForInference, preprocess);
       markSuccess();
-      return {
-        ...result,
-        provider: 'proxy',
-        creativeIntent: result.creativeIntent ?? preprocessed.creativeIntent,
-        provenanceAudit: { ...preprocessed.provenanceAuditPatch, ...result.provenanceAudit }
-      };
+      return enrichWithContracts(result, intent, preprocess, 'proxy');
     } catch (error) {
       markFailure();
       if (!cfg.featureFlags.enableFallbackProvider && !cfg.featureFlags.enableLocalHeuristicFallback) {
@@ -62,7 +53,7 @@ export async function interpretIntent(intent: string): Promise<ManifestResult> {
   if (cfg.featureFlags.enableFallbackProvider) {
     try {
       const fallbackProviderUrl = buildEndpointUrl(cfg.apiBasePath, `${cfg.intentProxyPath}/fallback`);
-      const result = await executeWithRetry(fallbackProviderUrl, intent, preprocessed, 1);
+      const result = await executeWithRetry(fallbackProviderUrl, intentForInference, preprocess, 1);
       emitFallbackAudit({
         type: 'fallback-provider',
         reason: isCircuitOpen() ? 'circuit_open' : 'upstream_failed',
@@ -70,13 +61,11 @@ export async function interpretIntent(intent: string): Promise<ManifestResult> {
         timestamp: new Date().toISOString()
       });
 
-      return {
+      return enrichWithContracts({
         ...result,
         provider: 'fallback-provider',
-        fallbackReason: isCircuitOpen() ? 'circuit_open' : 'upstream_failed',
-        creativeIntent: result.creativeIntent ?? preprocessed.creativeIntent,
-        provenanceAudit: { ...preprocessed.provenanceAuditPatch, ...result.provenanceAudit }
-      };
+        fallbackReason: isCircuitOpen() ? 'circuit_open' : 'upstream_failed'
+      }, intent, preprocess, 'fallback-provider');
     } catch {
       // Continue to local heuristic fallback.
     }
@@ -89,23 +78,18 @@ export async function interpretIntent(intent: string): Promise<ManifestResult> {
       intentPreview: intent.slice(0, 80),
       timestamp: new Date().toISOString()
     });
-    return localHeuristicFallback(intent, preprocessed);
+    return enrichWithContracts(localHeuristicFallback(intentForInference), intent, preprocess, 'local-heuristic');
   }
 
   throw new Error('Intent provider unavailable and no fallback is enabled.');
 }
 
-async function executeWithRetry(
-  url: string,
-  intent: string,
-  preprocessed: ReturnType<typeof preprocessIntent>,
-  maxRetries = MAX_RETRIES
-): Promise<ManifestResult> {
+async function executeWithRetry(url: string, intent: string, preprocess: IntentPreprocessResult, maxRetries = MAX_RETRIES): Promise<ManifestResult> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     try {
-      return await callIntentEndpoint(url, intent, preprocessed);
+      return await callIntentEndpoint(url, intent, preprocess);
     } catch (error) {
       lastError = error;
       if (attempt === maxRetries) {
@@ -120,19 +104,15 @@ async function executeWithRetry(
   throw lastError instanceof Error ? lastError : new Error('Intent endpoint failed after retries.');
 }
 
-async function callIntentEndpoint(
-  url: string,
-  intent: string,
-  preprocessed: ReturnType<typeof preprocessIntent>
-): Promise<ManifestResult> {
+async function callIntentEndpoint(url: string, intent: string, preprocess: IntentPreprocessResult): Promise<ManifestResult> {
   const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       intent,
-      normalizedIntent: preprocessed.normalizedIntent,
-      creativeIntent: preprocessed.creativeIntent,
-      provenanceAudit: preprocessed.provenanceAuditPatch
+      languageDetection: preprocess.language_detection,
+      normalizedIntent: preprocess.normalized_intent,
+      semanticConcepts: preprocess.semantic_concepts
     })
   }, REQUEST_TIMEOUT_MS);
 
@@ -195,6 +175,38 @@ function localHeuristicFallback(intent: string, preprocessed: ReturnType<typeof 
   };
 }
 
+function enrichWithContracts(
+  result: ManifestResult,
+  rawIntent: string,
+  preprocess: IntentPreprocessResult,
+  provider: NonNullable<ManifestResult['provider']>
+): ManifestResult {
+  return {
+    ...result,
+    provider,
+    creative_intent: {
+      prompt_text: rawIntent,
+      goal_type: preprocess.inferred_goal_type,
+      emotional_valence: preprocess.emotional_valence,
+      energy_level: sanitizeLevel(result.energy, 0.5),
+      semantic_concepts: preprocess.semantic_concepts,
+      normalized_intent: preprocess.normalized_intent,
+      language_detection: preprocess.language_detection,
+      output_constraints: []
+    },
+    provenance_audit: {
+      who_requested: 'runtime-user',
+      brand_profile_used: 'default',
+      policy_decisions: [],
+      rejected_transitions: [],
+      language_detection: preprocess.language_detection,
+      semantic_mapping_trace: preprocess.semantic_mapping_trace,
+      generation_cost: 0,
+      session_replay_id: `runtime-${Date.now()}`
+    }
+  };
+}
+
 function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -234,20 +246,13 @@ function emitFallbackAudit(event: FallbackAuditEvent): void {
   window.dispatchEvent(new CustomEvent<FallbackAuditEvent>('intent:fallback', { detail: event }));
 }
 
-
-function isCreativeIntent(value: unknown): value is ManifestResult['creativeIntent'] {
-  return Boolean(value) && typeof value === 'object';
-}
-
-function isProvenanceAudit(value: unknown): value is ManifestResult['provenanceAudit'] {
-  return Boolean(value) && typeof value === 'object';
-}
-
-function emitProvenanceAudit(payload: {
-  stage: 'preprocess';
-  creativeIntent: ManifestResult['creativeIntent'];
-  provenanceAudit: ManifestResult['provenanceAudit'];
-  timestamp: string;
-}): void {
-  window.dispatchEvent(new CustomEvent('intent:provenance', { detail: payload }));
+function emitPreprocessAudit(preprocess: IntentPreprocessResult): void {
+  window.dispatchEvent(new CustomEvent('intent:provenance', {
+    detail: {
+      languageDetection: preprocess.language_detection,
+      semanticConcepts: preprocess.semantic_concepts,
+      semanticMappingTrace: preprocess.semantic_mapping_trace,
+      normalizedIntent: preprocess.normalized_intent
+    }
+  }));
 }
