@@ -95,6 +95,44 @@ function bootstrap(): void {
   if (!composer || !emitButton) throw new Error('composer controls missing');
   if (!settingsButton || !settingsSection) throw new Error('settings controls missing');
 
+  const REQUEST_TIMEOUT_MS = 15000;
+  let submitLockTimer: number | undefined;
+  let isSubmitLocked = false;
+  let currentRequestToken = 0;
+
+  const clearSubmitLockTimer = () => {
+    if (submitLockTimer !== undefined) {
+      window.clearTimeout(submitLockTimer);
+      submitLockTimer = undefined;
+    }
+  };
+
+  const setSubmitLocked = (locked: boolean) => {
+    isSubmitLocked = locked;
+    composer.disabled = locked;
+    emitButton.disabled = locked;
+    emitButton.setAttribute('aria-busy', locked ? 'true' : 'false');
+  };
+
+  const unlockSubmit = () => {
+    clearSubmitLockTimer();
+    setSubmitLocked(false);
+  };
+
+  const lockSubmitWithTimeoutGuard = () => {
+    clearSubmitLockTimer();
+    setSubmitLocked(true);
+    const requestTokenAtLock = currentRequestToken;
+    submitLockTimer = window.setTimeout(() => {
+      if (!isSubmitLocked || requestTokenAtLock !== currentRequestToken) return;
+      currentRequestToken += 1;
+      bus.emit('ERROR', {
+        message: `Request timed out after ${REQUEST_TIMEOUT_MS}ms`,
+        cause: new Error('request timeout')
+      });
+    }, REQUEST_TIMEOUT_MS);
+  };
+
   settingsButton.onclick = () => {
     const willOpen = settingsSection.classList.contains('hidden');
     settingsSection.classList.toggle('hidden');
@@ -157,6 +195,7 @@ function bootstrap(): void {
   };
 
   bus.on('INTENT_SUBMITTED', async ({ intent }) => {
+    const requestToken = currentRequestToken;
     const startedAt = performance.now();
 
     try {
@@ -171,6 +210,7 @@ function bootstrap(): void {
       });
 
       const result = await interpretIntent(intent);
+      if (requestToken !== currentRequestToken) return;
       const latencyMs = performance.now() - startedAt;
       telemetry.recordEvent('request_succeeded', Date.now(), latencyMs);
       syncHUD();
@@ -183,6 +223,7 @@ function bootstrap(): void {
       });
       bus.emit('MANIFEST_READY', { intent, result });
     } catch (cause) {
+      if (requestToken !== currentRequestToken) return;
       const latencyMs = performance.now() - startedAt;
       telemetry.recordEvent('request_failed', Date.now(), latencyMs);
       syncHUD();
@@ -211,8 +252,7 @@ function bootstrap(): void {
     applyState('COOLDOWN');
     setTimeout(() => {
       applyState('IDLE');
-      composer.disabled = false;
-      emitButton.disabled = false;
+      unlockSubmit();
     }, 1500);
   });
 
@@ -222,23 +262,28 @@ function bootstrap(): void {
       applyState('COOLDOWN');
       setTimeout(() => applyState('IDLE'), 500);
     }
-    composer.disabled = false;
-    emitButton.disabled = false;
+    unlockSubmit();
   });
 
   const submitIntent = () => {
+    if (isSubmitLocked) return;
     const intent = composer.value.trim();
     if (!intent) return;
+    currentRequestToken += 1;
     composer.value = '';
-    composer.disabled = true;
-    emitButton.disabled = true;
+    lockSubmitWithTimeoutGuard();
     bus.emit('INTENT_SUBMITTED', { intent });
   };
 
   emitButton.onclick = submitIntent;
-  composer.onkeypress = (e) => {
-    if (e.key === 'Enter') submitIntent();
-  };
+  composer.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    const isVirtualKeyboardComposing = event.isComposing || event.keyCode === 229;
+    if (isVirtualKeyboardComposing) return;
+    if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || event.repeat) return;
+    event.preventDefault();
+    submitIntent();
+  });
 
   window.onresize = () => particles.resize();
   telemetry.updateRuntime(machine.state);
