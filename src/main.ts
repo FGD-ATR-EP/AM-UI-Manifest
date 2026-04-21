@@ -152,6 +152,7 @@ function bootstrap(): void {
     const startedAt = performance.now();
 
     try {
+      particles.transitionToTextFormation(intent);
       applyState('THINKING');
       telemetry.recordEvent('request_started');
       syncHUD();
