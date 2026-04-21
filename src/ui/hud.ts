@@ -72,38 +72,42 @@ export class HUD {
   showManifest(result: ManifestResult): void {
     this.targetContent.replaceChildren();
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'space-y-2';
+    const container = document.createElement('div');
+    container.className = 'space-y-2';
 
     const interpretation = document.createElement('div');
-    interpretation.className = 'p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed';
+    interpretation.className =
+      'p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed';
     interpretation.textContent = `> ${result.interpretation}`;
+    container.appendChild(interpretation);
 
     const colors = document.createElement('div');
     colors.className = 'flex space-x-2';
 
-    result.colors
-      .map((color) => this.sanitizeColor(color))
-      .filter((color): color is string => color !== null)
-      .forEach((color) => {
-        const swatch = document.createElement('div');
-        swatch.className = 'w-4 h-4 rounded-sm border border-white/10';
-        swatch.style.backgroundColor = color;
-        colors.appendChild(swatch);
-      });
+    result.colors.forEach((color) => {
+      const swatch = document.createElement('div');
+      swatch.className = 'w-4 h-4 rounded-sm border border-white/10';
+      swatch.style.backgroundColor = this.sanitizeCssColor(color);
+      colors.appendChild(swatch);
+    });
 
-    wrapper.appendChild(interpretation);
-    wrapper.appendChild(colors);
-    this.targetContent.appendChild(wrapper);
+    container.appendChild(colors);
+    this.targetContent.appendChild(container);
     this.target.classList.remove('hidden');
   }
 
-  private sanitizeColor(color: string): string | null {
-    const value = color.trim();
-    if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) {
-      return value;
+  private sanitizeCssColor(value: string): string {
+    const trimmed = value.trim();
+    const isHex = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed);
+    const isRgb =
+      /^rgba?\(\s*(?:\d{1,3}%?\s*,\s*){2}\d{1,3}%?(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed);
+    const isHsl =
+      /^hsla?\(\s*\d{1,3}(?:deg)?\s*,\s*\d{1,3}%\s*,\s*\d{1,3}%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed);
+
+    if (isHex || isRgb || isHsl) {
+      return trimmed;
     }
 
-    return null;
+    return 'transparent';
   }
 }
