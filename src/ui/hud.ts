@@ -70,18 +70,40 @@ export class HUD {
   }
 
   showManifest(result: ManifestResult): void {
-    this.targetContent.innerHTML = `
-      <div class="space-y-2">
-        <div class="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed">
-          > ${result.interpretation}
-        </div>
-        <div class="flex space-x-2">
-          ${result.colors
-            .map((c) => `<div class="w-4 h-4 rounded-sm border border-white/10" style="background:${c}"></div>`)
-            .join('')}
-        </div>
-      </div>
-    `;
+    this.targetContent.replaceChildren();
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'space-y-2';
+
+    const interpretation = document.createElement('div');
+    interpretation.className = 'p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed';
+    interpretation.textContent = `> ${result.interpretation}`;
+
+    const colors = document.createElement('div');
+    colors.className = 'flex space-x-2';
+
+    result.colors
+      .map((color) => this.sanitizeColor(color))
+      .filter((color): color is string => color !== null)
+      .forEach((color) => {
+        const swatch = document.createElement('div');
+        swatch.className = 'w-4 h-4 rounded-sm border border-white/10';
+        swatch.style.backgroundColor = color;
+        colors.appendChild(swatch);
+      });
+
+    wrapper.appendChild(interpretation);
+    wrapper.appendChild(colors);
+    this.targetContent.appendChild(wrapper);
     this.target.classList.remove('hidden');
+  }
+
+  private sanitizeColor(color: string): string | null {
+    const value = color.trim();
+    if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) {
+      return value;
+    }
+
+    return null;
   }
 }
