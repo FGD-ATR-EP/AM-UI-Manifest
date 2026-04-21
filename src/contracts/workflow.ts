@@ -13,6 +13,8 @@ export interface ManifestResult {
   colors: string[];
   provider?: "proxy" | "fallback-provider" | "local-heuristic";
   fallbackReason?: string;
+  creativeIntent?: CreativeIntent;
+  provenanceAudit?: Partial<ProvenanceAudit>;
 }
 
 export interface CreativeIntent {
@@ -22,6 +24,9 @@ export interface CreativeIntent {
   energy_level: number;
   semantic_concepts: string[];
   output_constraints: string[];
+  source_language: string;
+  source_script: string;
+  language_confidence: number;
 }
 
 export interface ManifestationContract {
@@ -64,6 +69,9 @@ export interface ProvenanceAudit {
   rejected_transitions: string[];
   generation_cost: number;
   session_replay_id: string;
+  detected_language?: string;
+  detected_script?: string;
+  preprocessing_steps?: string[];
 }
 
 export interface WorkflowContracts {
