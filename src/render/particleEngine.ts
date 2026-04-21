@@ -1,14 +1,24 @@
 import * as THREE from 'three';
 import type { SystemSnapshot } from '../contracts/workflow';
+import { buildTextPointCloud } from './textField';
+
+type ParticleMode = 'AMBIENT_SWARM' | 'TEXT_FORMATION';
 
 export class ParticleEngine {
-  private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-  private renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  private clock = new THREE.Clock();
+  private readonly particleCount = 30000;
+  private readonly scene = new THREE.Scene();
+  private readonly camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+  private readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  private readonly clock = new THREE.Clock();
   private elapsedTime = 0;
   private particles!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private material!: THREE.ShaderMaterial;
+  private ambientPositions = new Float32Array(this.particleCount * 3);
+  private targetPositions = new Float32Array(this.particleCount * 3);
+  private mode: ParticleMode = 'AMBIENT_SWARM';
+  private formationBlend = 0;
+  private targetFormationBlend = 0;
+  private dissolveTimer: number | null = null;
   private interaction = {
     pointer: new THREE.Vector2(2, 2),
     targetBurst: 0,
@@ -25,19 +35,21 @@ export class ParticleEngine {
   }
 
   private buildParticles(): void {
-    const count = 30000;
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-    const phases = new Float32Array(count);
-    const responsiveness = new Float32Array(count);
+    const colors = new Float32Array(this.particleCount * 3);
+    const phases = new Float32Array(this.particleCount);
+    const responsiveness = new Float32Array(this.particleCount);
 
-    for (let i = 0; i < count; i += 1) {
+    for (let i = 0; i < this.particleCount; i += 1) {
       const r = 100 + Math.random() * 300;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(Math.random() * 2 - 1);
-      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-      positions[i * 3 + 2] = r * Math.cos(phi);
+      this.ambientPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      this.ambientPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      this.ambientPositions[i * 3 + 2] = r * Math.cos(phi);
+
+      this.targetPositions[i * 3] = this.ambientPositions[i * 3];
+      this.targetPositions[i * 3 + 1] = this.ambientPositions[i * 3 + 1];
+      this.targetPositions[i * 3 + 2] = this.ambientPositions[i * 3 + 2];
 
       colors[i * 3] = 0.38;
       colors[i * 3 + 1] = 0.4;
@@ -47,7 +59,8 @@ export class ParticleEngine {
     }
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('ambientPosition', new THREE.BufferAttribute(this.ambientPositions, 3));
+    geometry.setAttribute('targetPosition', new THREE.BufferAttribute(this.targetPositions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.setAttribute('phase', new THREE.BufferAttribute(phases, 1));
     geometry.setAttribute('responsiveness', new THREE.BufferAttribute(responsiveness, 1));
@@ -61,7 +74,8 @@ export class ParticleEngine {
         burstStrength: { value: 0 },
         burstDecay: { value: this.interaction.burstDecay },
         interactionDirection: { value: 1.0 },
-        stateMode: { value: 0.0 }
+        stateMode: { value: 0.0 },
+        formationBlend: { value: 0.0 }
       },
       vertexShader: `
         uniform float time;
@@ -72,15 +86,20 @@ export class ParticleEngine {
         uniform float burstDecay;
         uniform float interactionDirection;
         uniform float stateMode;
+        uniform float formationBlend;
+        attribute vec3 ambientPosition;
+        attribute vec3 targetPosition;
         attribute vec3 color;
         attribute float phase;
         attribute float responsiveness;
         varying vec3 vColor;
         void main() {
           vColor = color;
-          vec3 pos = position;
-          float movement = sin(time * 0.5 + phase) * (20.0 * entropy);
-          pos += normalize(pos) * movement * (1.0 + energy);
+          vec3 ambient = ambientPosition;
+          float movement = sin(time * 0.5 + phase) * (20.0 * entropy) * (1.0 - formationBlend);
+          ambient += normalize(ambient) * movement * (1.0 + energy);
+          vec3 pos = mix(ambient, targetPosition, formationBlend);
+
           vec4 interactionMv = modelViewMatrix * vec4(pos, 1.0);
           vec4 interactionClip = projectionMatrix * interactionMv;
           vec2 particleNdc = interactionClip.xy / max(interactionClip.w, 0.0001);
@@ -88,10 +107,11 @@ export class ParticleEngine {
           float dist = length(delta) + 0.0001;
           float pullPush = exp(-dist * (8.0 + burstDecay * 2.0));
           float stateForceScale = mix(0.45, 1.25, stateMode);
-          float fieldForce = burstStrength * pullPush * responsiveness * stateForceScale;
+          float fieldForce = burstStrength * pullPush * responsiveness * stateForceScale * (1.0 - formationBlend * 0.45);
           pos.xy += normalize(delta) * fieldForce * 90.0 * interactionDirection;
+
           vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
-          gl_PointSize = (2.0 + energy * 3.0 + fieldForce * 5.0) * (300.0 / -mvPos.z);
+          gl_PointSize = (2.0 + energy * 3.0 + fieldForce * 5.0 + formationBlend * 1.2) * (300.0 / -mvPos.z);
           gl_Position = projectionMatrix * mvPos;
         }
       `,
@@ -116,6 +136,7 @@ export class ParticleEngine {
     this.elapsedTime += deltaTime;
     this.interaction.targetBurst = Math.max(0, this.interaction.targetBurst - this.interaction.burstDecay * deltaTime);
     this.interaction.burstStrength = THREE.MathUtils.lerp(this.interaction.burstStrength, this.interaction.targetBurst, 0.2);
+    this.formationBlend = THREE.MathUtils.lerp(this.formationBlend, this.targetFormationBlend, 0.08);
 
     this.material.uniforms.time.value = this.elapsedTime;
     this.material.uniforms.energy.value = THREE.MathUtils.lerp(this.material.uniforms.energy.value, snapshot.energyLevel, 0.05);
@@ -125,8 +146,27 @@ export class ParticleEngine {
     this.material.uniforms.burstDecay.value = this.interaction.burstDecay;
     this.material.uniforms.interactionDirection.value = this.interaction.direction;
     this.material.uniforms.stateMode.value = this.mapStateToMode(snapshot.mode);
-    this.particles.rotation.y += 0.001 * (1 + snapshot.energyLevel);
+    this.material.uniforms.formationBlend.value = this.formationBlend;
+
+    const spinScale = this.mode === 'TEXT_FORMATION' ? 0.15 : 1;
+    this.particles.rotation.y += 0.001 * (1 + snapshot.energyLevel) * spinScale;
     this.renderer.render(this.scene, this.camera);
+  }
+
+  transitionToTextFormation(text: string, holdMs = 1800): void {
+    this.mode = 'TEXT_FORMATION';
+    const field = buildTextPointCloud({ text, count: this.particleCount });
+    this.targetPositions.set(field);
+
+    const targetAttr = this.particles.geometry.getAttribute('targetPosition') as THREE.BufferAttribute;
+    targetAttr.needsUpdate = true;
+    this.targetFormationBlend = 1;
+
+    if (this.dissolveTimer !== null) window.clearTimeout(this.dissolveTimer);
+    this.dissolveTimer = window.setTimeout(() => {
+      this.targetFormationBlend = 0;
+      this.mode = 'AMBIENT_SWARM';
+    }, holdMs);
   }
 
   applyBurst(clientX: number, clientY: number, intensity: number, direction: 1 | -1 = 1): void {
