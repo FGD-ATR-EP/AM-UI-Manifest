@@ -1,101 +1,114 @@
 # AM-UI-Manifest
 
-## Project overview
-**TH:** โครงการนี้เป็นตัวอย่างอินเทอร์เฟซเชิงรับรู้ (perceptual UI) ที่แปลง “เจตจำนง” ของผู้ใช้ให้กลายเป็นพฤติกรรมภาพแบบเรียลไทม์ผ่านระบบอนุภาค (particle field) โดยมี HUD สำหรับติดตามสถานะระบบ เทเลเมทรี และเส้นทาง fallback เพื่อให้เห็นการตอบสนองของระบบ AI ได้อย่างโปร่งใสและเข้าใจง่าย
+Perceptual UI prototype that maps user intent to real-time visual behavior.
 
-**EN:** AM-UI-Manifest is a perceptual UI prototype that turns user intent into real-time visual behavior through a particle field. It includes a runtime HUD, telemetry, and fallback tracing so AI-state transitions remain observable, testable, and easy to reason about.
+## Overview
 
-## System architecture
-The runtime is intentionally modular and centered around five subsystems:
+AM-UI-Manifest receives text intent from users, interprets it into manifestation contracts, then renders a responsive particle field while exposing internal runtime state through a HUD. The architecture is intentionally modular so each stage (intent, runtime transitions, rendering, telemetry) can be tested independently.
 
-1. **EventBus**
-   - Publishes and subscribes to app-level events (`INTENT_SUBMITTED`, `MANIFEST_READY`, `RENDER_DONE`, `ERROR`).
-   - Decouples UI controls from runtime orchestration.
+## Repository structure
 
-2. **StateMachine**
-   - Manages deterministic state transitions: `IDLE -> THINKING -> EMITTING -> COOLDOWN -> IDLE`.
-   - Prevents invalid transitions and clamps energy/entropy levels.
+```text
+.
+├── .github/workflows/
+│   ├── ci.yml                  # Typecheck + build on PR/push
+│   ├── codeql.yml              # Code scanning for TS/JS
+│   ├── dependency-review.yml   # PR dependency risk gate
+│   └── pages.yml               # Build and deploy static site to GitHub Pages
+├── index.html                  # App shell and mount point
+├── src/
+│   ├── contracts/
+│   │   ├── events.ts           # Runtime event contracts
+│   │   └── workflow.ts         # Intent/manifest contract schema
+│   ├── core/
+│   │   └── eventBus.ts         # Pub/sub event bus
+│   ├── render/
+│   │   ├── particleEngine.ts   # Visual engine
+│   │   └── textField.ts        # Intent input bindings
+│   ├── runtime/
+│   │   ├── intentInterpreter.ts# Intent -> manifest logic
+│   │   ├── language.ts         # Language normalization
+│   │   ├── stateMachine.ts     # Deterministic runtime states
+│   │   └── telemetry.ts        # Runtime diagnostics
+│   ├── settings/
+│   │   └── config.ts           # Runtime configuration
+│   ├── ui/
+│   │   ├── hud.ts              # HUD + runtime logs
+│   │   └── settingsPanel.ts    # UI runtime controls
+│   └── main.ts                 # Application composition root
+├── package.json
+├── tsconfig.json
+└── SECURITY.md
+```
 
-3. **ParticleEngine**
-   - Renders the interactive field and reacts to pointer/touch bursts.
-   - Applies color/pattern output from interpreted intent.
+## Runtime architecture
 
-4. **HUD**
-   - Displays runtime/network telemetry: state, energy, entropy, load, latency, error rate, throughput, and fallback count.
-   - Shows manifest interpretation and structured logs.
+### 1) Event bus
+Central event dispatch layer for `INTENT_SUBMITTED`, `MANIFEST_READY`, `RENDER_DONE`, and `ERROR` events.
 
-5. **Settings**
-   - Provides runtime configuration (e.g., proxy base path).
-   - Supports operation tuning without rebuilding the app.
+### 2) State machine
+Deterministic transitions:
 
-## Data contracts A/B/C/D/E
-The workflow contracts are organized as five canonical stages:
+`IDLE -> THINKING -> EMITTING -> COOLDOWN -> IDLE`
 
-- **A. Creative Intent**
-  - Captures prompt text, goals, emotional valence, semantic concepts, and normalized intent metadata.
+Energy/entropy are clamped to prevent invalid transitions.
 
-- **B. Manifestation Contract**
-  - Defines visual behavior: palette mode, particle density, turbulence, flow direction, attractor points, and composition hints.
+### 3) Intent interpreter
+Transforms normalized user intent into manifestation parameters such as palette, density, flow, turbulence, and attractor behavior.
 
-- **C. Render Job**
-  - Encodes renderer profile, quality tier, FPS budget, shader profile, and export profile.
+### 4) Particle engine
+Applies manifest settings to visual rendering and responds to pointer/touch bursts.
 
-- **D. Artifact**
-  - Tracks generated outputs (preview/final/layered/motion) and prompt lineage for reproducibility.
+### 5) HUD and telemetry
+Surfaces current state, latency, throughput, error/fallback counts, and trace logs for observability.
 
-- **E. Provenance Audit**
-  - Records request origin, policy decisions, rejected transitions, language-detection traces, and replay/session metadata.
+## Data contracts (A-E)
 
-## Runtime states and interaction model
-### Runtime states
-- **IDLE**: baseline visual drift, waiting for intent input.
-- **THINKING**: inference and contract preparation are in progress.
-- **EMITTING**: interpreted result is applied to the visual field.
-- **COOLDOWN**: short stabilization window before returning to IDLE.
+- **A: Creative Intent** — user goals, emotion, semantic hints.
+- **B: Manifestation Contract** — visual behavior settings.
+- **C: Render Job** — quality, FPS, profile constraints.
+- **D: Artifact** — output lineage and generated previews.
+- **E: Provenance Audit** — request origin, policy/fallback traces.
 
-### Interaction model
-- **Mouse / pointer**
-  - `pointermove`: low-intensity negative burst for subtle motion shaping.
-  - `pointerdown`: high-intensity positive burst for explicit activation.
+## Development
 
-- **Touch**
-  - `touchstart`: stronger initial burst to compensate for coarse touch input.
-  - `touchmove`: lighter drag bursts for continuous control.
+### Requirements
+- Node.js 20+ (Node 22 recommended)
+- npm
 
-- **Text formation / intent pipeline**
-  - User submits text intent.
-  - Input is preprocessed (language/semantic normalization).
-  - Runtime attempts proxy inference with retries + timeout.
-  - On failure, fallback-provider and then local heuristic paths may activate.
-  - Manifest result updates field color/behavior and HUD diagnostics.
+### Install
 
-## Security & fallback policy
-- **Input validation & output safety**
-  - Runtime sanitizes numeric ranges (energy/entropy clamped).
-  - HUD color rendering uses CSS color sanitization to avoid unsafe values.
+```bash
+npm install
+```
 
-- **Resilience controls**
-  - Timeout + retry with exponential backoff.
-  - Circuit breaker opens after repeated failures and auto-cools down.
+### Local checks
 
-- **Fallback order**
-  1. Primary proxy provider
-  2. Optional fallback provider
-  3. Local heuristic fallback
+```bash
+npm run typecheck
+npm run build
+# or combined
+npm run check
+```
 
-- **Auditability**
-  - Fallback and provenance signals are emitted as structured events for HUD logs and diagnostics.
+### Dev mode
 
-## Known limitations and roadmap
-### Known limitations
-- Current visuals are intentionally abstract and do not enforce domain-specific semantics.
-- Contract mapping quality depends on preprocessing heuristics and provider response quality.
-- No built-in persistence layer for long-term telemetry storage yet.
-- Accessibility and multilingual UX polish are still evolving.
+```bash
+npm run dev
+```
 
-### Roadmap
-- Add stronger schema validation for all contract boundaries.
-- Improve language-aware intent normalization and goal inference.
-- Expand telemetry export (JSON/NDJSON) for offline analysis.
-- Add configurable policy presets for reliability vs. latency.
-- Improve mobile ergonomics and accessibility (ARIA, contrast, keyboard flow).
+This runs esbuild in watch mode.
+
+## CI/CD workflows
+
+- **CI (`ci.yml`)**: runs `npm install`, `npm run typecheck`, `npm run build` on pull requests, pushes to `main`, and manual dispatch.
+- **Dependency Review (`dependency-review.yml`)**: checks introduced dependencies on pull requests.
+- **CodeQL (`codeql.yml`)**: weekly + PR/push static code scanning for TypeScript/JavaScript.
+- **Pages (`pages.yml`)**: builds static assets and deploys `index.html` + `dist/` to GitHub Pages.
+
+## Security and resilience
+
+- Numeric guardrails for runtime signals (energy/entropy clamps).
+- CSS color sanitization in visual output paths.
+- Timeout + retry + cooldown/circuit-breaker fallback behavior.
+- Structured fallback/provenance signals emitted for auditability.
