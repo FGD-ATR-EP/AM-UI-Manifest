@@ -60,10 +60,10 @@ function mountAppShell(root: HTMLElement): void {
 
       <div class="w-full max-w-2xl mx-auto pointer-events-auto pb-4 sm:pb-8">
         <div class="glass-panel rounded-xl px-3 py-2 mb-3 text-[11px] sm:text-xs text-gray-300 font-mono text-center">
-          Home mode: interactive field + intent input. Open Settings for HUD / logs / config.
+          Home mode: interactive field + intent input. Open Settings for HUD, logs, and runtime configuration.
         </div>
         <div id="composer-container" class="glass-panel rounded-2xl p-2 flex items-center space-x-2 transition-all duration-300 border border-white/10">
-          <input type="text" id="composer-input" class="flex-1 bg-transparent text-white placeholder-gray-500 text-sm sm:text-base py-2 px-2" placeholder="ป้อนเจตจำนงเชิงปัญญา (Cognitive Intent)...">
+          <input type="text" id="composer-input" class="flex-1 bg-transparent text-white placeholder-gray-500 text-sm sm:text-base py-2 px-2" placeholder="ป้อนเจตจำนงเชิงปัญญา (Cognitive intent)...">
           <button id="btn-emit" class="px-4 py-2 sm:py-3 bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/30 text-indigo-200 hover:text-white rounded-xl transition-all">EMIT</button>
         </div>
       </div>
@@ -217,7 +217,7 @@ function bootstrap(): void {
   });
 
   bus.on('ERROR', ({ message }) => {
-    hud.log(`Link Error: ${message}`, 'ERR');
+    hud.log(`Runtime error: ${message}`, 'ERR');
     if (machine.state.mode !== 'COOLDOWN') {
       applyState('COOLDOWN');
       setTimeout(() => applyState('IDLE'), 500);
