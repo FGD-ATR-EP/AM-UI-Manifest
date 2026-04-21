@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Helper for browser-based screenshot workflows in local/dev containers.
+# 1) Ensures dependencies exist
+# 2) Builds the bundle used by index.html
+# 3) Serves the project on a fixed port
+
+if [ ! -d node_modules ]; then
+  npm install
+fi
+
+npm run build
+
+echo "Starting static server at http://127.0.0.1:4173"
+npx --yes serve -l 4173 .
