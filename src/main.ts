@@ -136,6 +136,14 @@ function bootstrap(): void {
     }, 'ERR');
   });
 
+  window.addEventListener('intent:provenance', (event: Event) => {
+    const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+    hud.logStructured('intent_provenance', {
+      ...detail,
+      timestamp: new Date().toISOString()
+    }, 'API');
+  });
+
   const animate = () => {
     particles.render(machine.state);
     requestAnimationFrame(animate);
