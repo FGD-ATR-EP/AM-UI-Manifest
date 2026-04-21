@@ -70,18 +70,44 @@ export class HUD {
   }
 
   showManifest(result: ManifestResult): void {
-    this.targetContent.innerHTML = `
-      <div class="space-y-2">
-        <div class="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed">
-          > ${result.interpretation}
-        </div>
-        <div class="flex space-x-2">
-          ${result.colors
-            .map((c) => `<div class="w-4 h-4 rounded-sm border border-white/10" style="background:${c}"></div>`)
-            .join('')}
-        </div>
-      </div>
-    `;
+    this.targetContent.replaceChildren();
+
+    const container = document.createElement('div');
+    container.className = 'space-y-2';
+
+    const interpretation = document.createElement('div');
+    interpretation.className =
+      'p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed';
+    interpretation.textContent = `> ${result.interpretation}`;
+    container.appendChild(interpretation);
+
+    const colors = document.createElement('div');
+    colors.className = 'flex space-x-2';
+
+    result.colors.forEach((color) => {
+      const swatch = document.createElement('div');
+      swatch.className = 'w-4 h-4 rounded-sm border border-white/10';
+      swatch.style.backgroundColor = this.sanitizeCssColor(color);
+      colors.appendChild(swatch);
+    });
+
+    container.appendChild(colors);
+    this.targetContent.appendChild(container);
     this.target.classList.remove('hidden');
+  }
+
+  private sanitizeCssColor(value: string): string {
+    const trimmed = value.trim();
+    const isHex = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed);
+    const isRgb =
+      /^rgba?\(\s*(?:\d{1,3}%?\s*,\s*){2}\d{1,3}%?(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed);
+    const isHsl =
+      /^hsla?\(\s*\d{1,3}(?:deg)?\s*,\s*\d{1,3}%\s*,\s*\d{1,3}%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed);
+
+    if (isHex || isRgb || isHsl) {
+      return trimmed;
+    }
+
+    return 'transparent';
   }
 }
