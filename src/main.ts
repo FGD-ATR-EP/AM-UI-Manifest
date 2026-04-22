@@ -7,6 +7,32 @@ import { TelemetryStore } from './runtime/telemetry';
 import { HUD } from './ui/hud';
 import { SettingsPanel } from './ui/settingsPanel';
 
+type SpeechRecognitionAlternativeLike = { transcript: string };
+type SpeechRecognitionResultLike = { isFinal: boolean; [index: number]: SpeechRecognitionAlternativeLike };
+type SpeechRecognitionResultListLike = { length: number; [index: number]: SpeechRecognitionResultLike };
+type SpeechRecognitionEventLike = { resultIndex: number; results: SpeechRecognitionResultListLike };
+type SpeechRecognitionErrorEventLike = { error: string };
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: BrowserSpeechRecognitionCtor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionCtor;
+  }
+}
+
 function mountAppShell(root: HTMLElement): void {
   root.innerHTML = `
     <div id="canvas-container" class="absolute inset-0 z-0"></div>
@@ -60,11 +86,21 @@ function mountAppShell(root: HTMLElement): void {
 
       <div class="w-full max-w-2xl mx-auto pointer-events-auto pb-4 sm:pb-8">
         <div class="glass-panel rounded-xl px-3 py-2 mb-3 text-[11px] sm:text-xs text-gray-300 font-mono text-center">
-          Home mode: interactive field + intent input. Open Settings for HUD, logs, and runtime configuration.
+          Home mode: multimodal intent input (text + voice + attachments). Open Settings for HUD, logs, and runtime configuration.
         </div>
         <div id="composer-container" class="glass-panel rounded-2xl p-2 flex items-center space-x-2 transition-all duration-300 border border-white/10">
+          <button id="btn-attach" type="button" class="px-3 py-2 rounded-xl border border-white/10 text-gray-300 hover:bg-white/10 transition-colors" aria-label="Attach files">📎</button>
+          <button id="btn-voice" type="button" class="px-3 py-2 rounded-xl border border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/20 transition-colors" aria-label="Start voice input">🎙️</button>
           <input type="text" id="composer-input" class="flex-1 bg-transparent text-white placeholder-gray-500 text-sm sm:text-base py-2 px-2" placeholder="ป้อนเจตจำนงเชิงปัญญา (Cognitive intent)...">
           <button id="btn-emit" class="px-4 py-2 sm:py-3 bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/30 text-indigo-200 hover:text-white rounded-xl transition-all">EMIT</button>
+        </div>
+        <input id="attachment-input" type="file" class="hidden" multiple>
+        <div class="mt-2 px-2 text-[11px] text-gray-400 font-mono flex items-center justify-between gap-2">
+          <span id="attachment-summary">No attachment selected</span>
+          <span id="voice-status">Voice: standby</span>
+        </div>
+        <div class="mt-1 h-1 w-full rounded-full overflow-hidden bg-white/5">
+          <div id="voice-level" class="h-full w-[2%] bg-cyan-400/80 transition-[width] duration-75"></div>
         </div>
       </div>
     </div>
@@ -90,9 +126,16 @@ function bootstrap(): void {
 
   const composer = root.querySelector<HTMLInputElement>('#composer-input');
   const emitButton = root.querySelector<HTMLButtonElement>('#btn-emit');
+  const attachButton = root.querySelector<HTMLButtonElement>('#btn-attach');
+  const attachmentInput = root.querySelector<HTMLInputElement>('#attachment-input');
+  const attachmentSummary = root.querySelector<HTMLElement>('#attachment-summary');
+  const voiceButton = root.querySelector<HTMLButtonElement>('#btn-voice');
+  const voiceStatus = root.querySelector<HTMLElement>('#voice-status');
+  const voiceLevel = root.querySelector<HTMLElement>('#voice-level');
   const settingsButton = root.querySelector<HTMLButtonElement>('#btn-settings');
   const settingsSection = root.querySelector<HTMLElement>('#settings-section');
-  if (!composer || !emitButton) throw new Error('composer controls missing');
+  if (!composer || !emitButton || !attachButton || !attachmentInput || !attachmentSummary) throw new Error('composer controls missing');
+  if (!voiceButton || !voiceStatus || !voiceLevel) throw new Error('voice controls missing');
   if (!settingsButton || !settingsSection) throw new Error('settings controls missing');
 
   const REQUEST_TIMEOUT_MS = 15000;
@@ -111,6 +154,8 @@ function bootstrap(): void {
     isSubmitLocked = locked;
     composer.disabled = locked;
     emitButton.disabled = locked;
+    attachButton.disabled = locked;
+    voiceButton.disabled = locked;
     emitButton.setAttribute('aria-busy', locked ? 'true' : 'false');
   };
 
@@ -284,6 +329,130 @@ function bootstrap(): void {
     event.preventDefault();
     submitIntent();
   });
+
+  attachButton.onclick = () => attachmentInput.click();
+  attachmentInput.onchange = () => {
+    const files = attachmentInput.files;
+    if (!files || files.length === 0) {
+      attachmentSummary.textContent = 'No attachment selected';
+      return;
+    }
+
+    const names = Array.from(files).map((file) => file.name);
+    const preview = names.slice(0, 2).join(', ');
+    attachmentSummary.textContent = files.length > 2
+      ? `${preview}, +${files.length - 2} more`
+      : preview;
+    hud.log(`Attachment queued (${files.length}): ${names.join(', ')}`, 'SYS');
+  };
+
+  const SpeechRecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+  if (!SpeechRecognitionCtor) {
+    voiceButton.disabled = true;
+    voiceStatus.textContent = 'Voice: unavailable on this browser';
+  } else {
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'th-TH';
+
+    let micStream: MediaStream | null = null;
+    let audioContext: AudioContext | null = null;
+    let analyzer: AnalyserNode | null = null;
+    let rafId = 0;
+    let isListening = false;
+
+    const stopVoiceLevelMeter = () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (audioContext) {
+        void audioContext.close();
+        audioContext = null;
+      }
+      micStream?.getTracks().forEach((track) => track.stop());
+      micStream = null;
+      analyzer = null;
+      voiceLevel.style.width = '2%';
+    };
+
+    const startVoiceLevelMeter = async () => {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(micStream);
+      analyzer = audioContext.createAnalyser();
+      analyzer.fftSize = 256;
+      source.connect(analyzer);
+
+      const bins = new Uint8Array(analyzer.frequencyBinCount);
+      const tick = () => {
+        if (!analyzer) return;
+        analyzer.getByteFrequencyData(bins);
+        const sum = bins.reduce((acc, value) => acc + value, 0);
+        const avg = sum / bins.length / 255;
+        const width = Math.max(2, Math.min(100, Math.round(avg * 180)));
+        voiceLevel.style.width = `${width}%`;
+        rafId = window.requestAnimationFrame(tick);
+      };
+      tick();
+    };
+
+    const beginListening = async () => {
+      if (isListening || isSubmitLocked) return;
+      try {
+        await startVoiceLevelMeter();
+        recognition.start();
+      } catch (error) {
+        stopVoiceLevelMeter();
+        voiceStatus.textContent = 'Voice: microphone permission denied';
+        hud.log(`Voice input failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'ERR');
+      }
+    };
+
+    const endListening = () => {
+      if (!isListening) return;
+      recognition.stop();
+    };
+
+    recognition.onstart = () => {
+      isListening = true;
+      voiceStatus.textContent = 'Voice: listening...';
+      voiceButton.classList.add('bg-cyan-500/30');
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
+      const transcripts: string[] = [];
+      for (let i = 0; i < event.results.length; i += 1) {
+        transcripts.push(event.results[i]?.[0]?.transcript ?? '');
+      }
+      const transcript = transcripts.join(' ').trim();
+      composer.value = transcript;
+      if (event.results[event.resultIndex]?.isFinal) {
+        voiceStatus.textContent = 'Voice: transcript ready';
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      voiceStatus.textContent = `Voice: ${event.error}`;
+      hud.log(`Voice recognition error: ${event.error}`, 'ERR');
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      voiceButton.classList.remove('bg-cyan-500/30');
+      voiceStatus.textContent = 'Voice: standby';
+      stopVoiceLevelMeter();
+    };
+
+    voiceButton.onclick = () => {
+      if (isListening) {
+        endListening();
+        return;
+      }
+      void beginListening();
+    };
+  }
 
   window.onresize = () => particles.resize();
   telemetry.updateRuntime(machine.state);
