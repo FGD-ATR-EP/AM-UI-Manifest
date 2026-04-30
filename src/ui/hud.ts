@@ -77,8 +77,9 @@ export class HUD {
 
     const interpretation = document.createElement('div');
     interpretation.className =
-      'p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed';
-    interpretation.textContent = `> ${result.interpretation}`;
+      'p-3 bg-indigo-500/10 border border-indigo-500/20 rounded font-mono text-[11px] leading-relaxed text-indigo-200';
+    interpretation.textContent = 'Response rendered as luminous particle glyphs in the field.';
+    interpretation.title = result.interpretation;
     container.appendChild(interpretation);
 
     const colors = document.createElement('div');
