@@ -138,7 +138,7 @@ function bootstrap(): void {
   if (!voiceButton || !voiceStatus || !voiceLevel) throw new Error('voice controls missing');
   if (!settingsButton || !settingsSection) throw new Error('settings controls missing');
 
-  const REQUEST_TIMEOUT_MS = 15000;
+  const REQUEST_TIMEOUT_MS = 10000;
   let submitLockTimer: number | undefined;
   let isSubmitLocked = false;
   let currentRequestToken = 0;
@@ -244,7 +244,7 @@ function bootstrap(): void {
     const startedAt = performance.now();
 
     try {
-      particles.transitionToTextFormation(intent);
+      particles.transitionToTextFormation(intent, 1200);
       applyState('THINKING');
       telemetry.recordEvent('request_started');
       syncHUD();
@@ -283,6 +283,7 @@ function bootstrap(): void {
   });
 
   bus.on('MANIFEST_READY', ({ result }: AppEventMap['MANIFEST_READY']) => {
+    particles.transitionToTextFormation(result.interpretation, 3200);
     applyState('EMITTING');
     machine.applyManifest(result.energy, result.entropy);
     telemetry.updateRuntime(machine.state);
@@ -298,7 +299,7 @@ function bootstrap(): void {
     setTimeout(() => {
       applyState('IDLE');
       unlockSubmit();
-    }, 1500);
+    }, 700);
   });
 
   bus.on('ERROR', ({ message }) => {
